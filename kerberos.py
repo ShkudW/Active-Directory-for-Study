@@ -460,6 +460,7 @@ def main():
             pt_t = decrypt(ticket_etype, args.tgs_service_key, 2, ticket_cipher_hex)
             print("")
             print(f"{MAGENTA}[+] TGS Decrypted hex:{RESET} {pt_t.hex()}")
+            pretty_print_enc_ticket_part_and_pac(pt_t)
             try:
                 enc_tkt, _ = der_decode(pt_t, asn1Spec=EncTicketPart())
                 skt = int(enc_tkt['key']['keytype'])
@@ -476,7 +477,7 @@ def main():
             pt_c = decrypt(encpart_etype, reply_key, 8, encpart_cipher_hex) 
             print("")
             print(f"{MAGENTA}[+] TGS-REP enc-part decrypted hex:{RESET} {pt_c.hex()}")
-            pretty_print_enc_ticket_part_and_pac(pt_t)
+            
             try:
                 encp, _ = der_decode(pt_c, asn1Spec=EncTGSRepPart())
                 kt = int(encp['key']['keytype'])
