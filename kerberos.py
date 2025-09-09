@@ -414,6 +414,7 @@ def main():
             pt_t = decrypt(ticket_etype, args.tgt_ticket_key, 2, ticket_cipher_hex)
             print("")
             print(f"{MAGENTA}[+] TGT Decrypted hex:{RESET} {pt_t.hex()}")
+            pretty_print_enc_ticket_part_and_pac(pt_t)
             try:
                 enc_tkt, _ = der_decode(pt_t, asn1Spec=EncTicketPart())
                 kt = int(enc_tkt['key']['keytype'])
