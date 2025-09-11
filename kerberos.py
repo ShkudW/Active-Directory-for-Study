@@ -52,7 +52,6 @@ def _nt_to_dt_str(nt: int) -> str:
     try:
         if nt in (0, None):
             return "Never"
-        # Infinity (absolute) ב־PAC:
         if nt == 0x7FFFFFFFFFFFFFFF or nt == 0x7fffffff_ffffffff:
             return "Infinity"
         unix_seconds = (nt / 10_000_000) - 11644473600
@@ -523,7 +522,6 @@ def parse_pac_logon_info(buf_bytes: bytes):
         kvi.fromString(newdata)
         kvi.fromStringReferents(newdata[len(kvi.getData()):])
 
-
         try:
             info["User"]["RID"] = int(kvi["UserId"])
             print(f"    {Colors.GREEN}User RID: {info['User']['RID']}{Colors.RESET}")
@@ -541,8 +539,7 @@ def parse_pac_logon_info(buf_bytes: bytes):
             print(f"    {Colors.GREEN}Group Count: {info['Domain']['GroupCount']}{Colors.RESET}")
         except Exception as e:
             print(f"    {Colors.RED}Error reading GroupCount: {e}{Colors.RESET}")
-
-        # שמות - נסה שיטות שונות
+            
         try:
             if kvi["EffectiveName"]:
                 info["User"]["UserName"] = str(kvi["EffectiveName"])
@@ -945,7 +942,7 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
                 for k, v in upn.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
 
-            elif t == 16:  # PAC_CREDENTIAL_INFO
+            elif t == 16:  
                 print(f"  {Colors.GREEN}PAC_CREDENTIAL_INFO{Colors.RESET}")
                 if len(data) >= 8:
                     version = unpack_from("<I", data, 0)[0]
@@ -968,7 +965,7 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
                 for k, v in req.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
 
-            elif t == 19:  # Extended KDC checksum  
+            elif t == 19:   
                 print(f"  {Colors.GREEN}PAC_EXTENDED_KDC_CHECKSUM{Colors.RESET}")
                 if len(data) >= 4:
                     checksum_type = unpack_from("<I", data, 0)[0]
