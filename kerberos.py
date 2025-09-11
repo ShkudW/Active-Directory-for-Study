@@ -421,11 +421,23 @@ def parse_pac_upn_dns_info(buf: bytes):
     out = {}
     if len(buf) >= 12:
         upn_len, upn_off, dns_len, dns_off, flags = unpack_from("<HHHHI", buf, 0)
-        upn = read_utf16le(buf, upn_off, upn_len); dns = read_utf16le(buf, dns_off, dns_len)
-        if upn: out["UPN"] = upn
-        if dns: out["DNSDomainName"] = dns
-        out["UPN_Flags"] = f"0x{flags:08x}"
+        upn = read_utf16le(buf, upn_off, upn_len)
+        dns = read_utf16le(buf, dns_off, dns_len)
+        
+        if upn: 
+            out["UPN"] = upn
+        if dns: 
+            out["DNSDomainName"] = dns
+            
+        flag_meanings = {
+            0x00000001: "UPN_CONSTRUCTED",
+            0x00000002: "S_SidSamSupplied"
+        }
+        flag_names = [name for bit, name in flag_meanings.items() if flags & bit]
+        out["UPN_Flags"] = f"0x{flags:08x} ({', '.join(flag_names) if flag_names else 'Unknown'})"
+        
     return out
+
 ##################################################
 
 def parse_sid(buf: bytes, offset: int = 0):
@@ -932,7 +944,18 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
                 upn = parse_pac_upn_dns_info(data)
                 for k, v in upn.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
-            
+
+            elif t == 16:  # PAC_CREDENTIAL_INFO
+                print(f"  {Colors.GREEN}PAC_CREDENTIAL_INFO{Colors.RESET}")
+                if len(data) >= 8:
+                    version = unpack_from("<I", data, 0)[0]
+                    enc_type = unpack_from("<I", data, 4)[0]
+                    encrypted_data = data[8:]
+                    print(f"    Version: {Colors.CYAN}0x{version:08x}{Colors.RESET}")
+                    print(f"    EncryptionType: {Colors.CYAN}0x{enc_type:08x}{Colors.RESET}")
+                    print(f"    Encrypted Credentials: {Colors.CYAN}{encrypted_data.hex()[:32]}...{Colors.RESET}")
+                    print(f"    {Colors.DIM}(Only present with PKINIT/Smart Card auth){Colors.RESET}")
+                        
             elif t == 17: 
                 print(f"{Colors.GREEN}PAC_ATTRIBUTES_INFO{Colors.RESET}")
                 attr = parse_pac_attributes_info(data)
@@ -944,7 +967,16 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
                 req = parse_pac_requestor(data)
                 for k, v in req.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
-            
+
+            elif t == 19:  # Extended KDC checksum  
+                print(f"  {Colors.GREEN}PAC_EXTENDED_KDC_CHECKSUM{Colors.RESET}")
+                if len(data) >= 4:
+                    checksum_type = unpack_from("<I", data, 0)[0]
+                    checksum = data[4:]
+                    print(f"    ChecksumType: {Colors.CYAN}0x{checksum_type:08x}{Colors.RESET}")
+                    print(f"    Extended Checksum: {Colors.CYAN}{checksum.hex()}{Colors.RESET}")
+                    print(f"    {Colors.DIM}(Enhanced KDC signature for additional security){Colors.RESET}")
+                        
             elif t == 20: 
                 print(f"{Colors.GREEN}PAC_CLAIMS_INFO{Colors.RESET}")
                 claims = parse_pac_claims_info(data)
