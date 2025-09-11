@@ -843,10 +843,7 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
         for e in pac['entries']:
             t = e['type']
             data = e['data']
-            print(f"\n{Colors.YELLOW}PAC Entry Type {t}:{Colors.RESET}")
-            
             if t == 1:  
-                print(f"  {Colors.GREEN}PAC_LOGON_INFO (Primary user info){Colors.RESET}")
                 li = parse_pac_logon_info(data)
                 if "_error" in li:
                     print(f"    {Colors.RED}Error: {li['_error']}{Colors.RESET}")
@@ -855,107 +852,107 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
                     domain = li.get("Domain", {})
                     
                     if user.get('UserName'):
-                        print(f"    User: {Colors.GREEN}{user['UserName']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] User:{Colors.RESET}{Colors.CYAN} {user['UserName']}{Colors.RESET}")
                     if user.get('FullName'):
-                        print(f"    Full Name: {Colors.GREEN}{user['FullName']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] Full Name:{Colors.RESET} {Colors.CYAN}{user['FullName']}{Colors.RESET}")
                     if user.get('RID'):
-                        print(f"    RID: {Colors.YELLOW}{user['RID']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] RID:{Colors.RESET} {Colors.CYAN}{user['RID']}{Colors.RESET}")
                     if user.get('UserSid'):
-                        print(f"    UserSid: {Colors.CYAN}{user['UserSid']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] UserSid:{Colors.RESET}{Colors.CYAN}{user['UserSid']}{Colors.RESET}")
                     if user.get('LogonCount') is not None:
-                        print(f"    Logon Count: {Colors.CYAN}{user['LogonCount']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] Logon Count:{Colors.RESET} {Colors.CYAN}{user['LogonCount']}{Colors.RESET}")
                     if user.get('BadPasswordCount') is not None:
-                        print(f"    Bad Password Count: {Colors.CYAN}{user['BadPasswordCount']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] Bad Password Count:{Colors.RESET} {Colors.CYAN}{user['BadPasswordCount']}{Colors.RESET}")
                     if user.get('UserAccountControl') is not None:
                         uac = user['UserAccountControl']
-                        print(f"    User Account Control: {Colors.YELLOW}0x{uac:x}{Colors.RESET} ({Colors.CYAN}{flags_to_names_map(uac, UAC_FLAGS)}{Colors.RESET})")
+                        print(f"{Colors.YELLOW}[*] User Account Control:{Colors.RESET} {Colors.CYAN}0x{uac:x}{Colors.RESET} ({Colors.CYAN}{flags_to_names_map(uac, UAC_FLAGS)}{Colors.RESET})")
                     
                     if domain.get('LogonDomainName'):
-                        print(f"    Domain: {Colors.GREEN}{domain['LogonDomainName']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] Domain:{Colors.RESET} {Colors.CYAN}{domain['LogonDomainName']}{Colors.RESET}")
                     if domain.get('LogonDomainId'):
-                        print(f"    Domain SID: {Colors.CYAN}{domain['LogonDomainId']}{Colors.RESET}")
+                        print(f"{Colors.YELLOW}[*] Domain SID:{Colors.RESET} {Colors.CYAN}{domain['LogonDomainId']}{Colors.RESET}")
                     if domain.get('PrimaryGroupId'):
                         pid = domain['PrimaryGroupId']
                         pname = RID_NAME_MAP.get(pid, "")
-                        print(f"    Primary Group: {Colors.YELLOW}{pid}{Colors.RESET}{' (' + pname + ')' if pname else ''}")
+                        print(f"{Colors.YELLOW}[*] Primary Group:{Colors.RESET} {Colors.CYAN}{pid}{Colors.RESET}{' (' + pname + ')' if pname else ''}")
                     
                     groups = li.get("Groups", [])
                     if groups:
-                        print(f"    Groups ({len(groups)}):")
+                        print(f"{Colors.GREEN}[*] Groups {Colors.RESET} ({len(groups)}):")
                         for g in groups:
                             name_part = f" ({Colors.GREEN}{g.get('Name')}{Colors.RESET})" if g.get('Name') else ""
                             attrs_str = flags_to_names_map(g.get('Attributes', 0), GROUP_ATTRS)
-                            print(f"      RID: {Colors.YELLOW}{g.get('RID')}{Colors.RESET}, SID: {Colors.CYAN}{g.get('SID')}{Colors.RESET}{name_part}")
-                            print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                            print(f"  {Colors.YELLOW}[->] RID:{Colors.RESET} {Colors.CYAN}{g.get('RID')}{Colors.RESET}, SID: {Colors.CYAN}{g.get('SID')}{Colors.RESET}{name_part}")
+                            print(f"  {Colors.YELLOW}[->] Attributes:{Colors.RESET} {Colors.CYAN}{attrs_str}{Colors.RESET}")
                     
                     extra_sids = li.get("ExtraSids", [])
                     if extra_sids:
-                        print(f"    ExtraSids ({len(extra_sids)}):")
+                        print(f"{Colors.GREEN}[*] ExtraSids {Colors.RESET}({len(extra_sids)}):")
                         for es in extra_sids:
                             attrs_str = flags_to_names_map(es.get('Attributes', 0), SE_GROUP_ATTRS)
-                            print(f"      SID: {Colors.CYAN}{es.get('SID')}{Colors.RESET}")
-                            print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                            print(f"  {Colors.YELLOW}[->] SID:{Colors.RESET} {Colors.CYAN}{es.get('SID')}{Colors.RESET}")
+                            print(f"  {Colors.YELLOW}[->] Attributes:{Colors.RESET} {Colors.CYAN}{attrs_str}{Colors.RESET}")
                     
                     resource_groups = li.get("ResourceGroups", [])
                     if resource_groups:
-                        print(f"    ResourceGroups ({len(resource_groups)}):")
+                        print(f"{Colors.GREEN}[*] ResourceGroups {Colors.RESET} ({len(resource_groups)}):")
                         for rg in resource_groups:
                             name_part = f" ({Colors.GREEN}{rg.get('Name')}{Colors.RESET})" if rg.get('Name') else ""
                             attrs_str = flags_to_names_map(rg.get('Attributes', 0), GROUP_ATTRS)
-                            print(f"      RID: {Colors.YELLOW}{rg.get('RID')}{Colors.RESET}, SID: {Colors.CYAN}{rg.get('SID')}{Colors.RESET}{name_part}")
-                            print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                            print(f"  {Colors.YELLOW}[->] RID: {Colors.RESET} {Colors.CYAN}{rg.get('RID')}{Colors.RESET}, SID: {Colors.CYAN}{rg.get('SID')}{Colors.RESET}{name_part}")
+                            print(f"  {Colors.YELLOW}[->] Attributes:{Colors.RESET} {Colors.CYAN}{attrs_str}{Colors.RESET}")
                     
                     times = li.get("Times", {})
                     if times:
-                        print(f"    Times:")
+                        print(f"{Colors.GREEN}[*] Times: {Colors.RESET}")
                         for time_name, nt_time in times.items():
                             time_str = _nt_to_dt_str(nt_time)
-                            print(f"      {time_name}: {Colors.CYAN}{time_str}{Colors.RESET}")
+                            print(f"{Colors.YELLOW}[->] {time_name}:{Colors.RESET}  {Colors.CYAN}{time_str}{Colors.RESET}")
             
             elif t == 6:
-                print(f"  {Colors.GREEN}PAC_SERVER_CHECKSUM{Colors.RESET}")
+                print(f"{Colors.GREEN}PAC_SERVER_CHECKSUM{Colors.RESET}")
                 sig_info = parse_pac_signature(data)
                 for k, v in sig_info.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
             
             elif t == 7: 
-                print(f"  {Colors.GREEN}PAC_PRIVSVR_CHECKSUM (KDC){Colors.RESET}")
+                print(f"{Colors.GREEN}PAC_PRIVSVR_CHECKSUM (KDC){Colors.RESET}")
                 sig_info = parse_pac_signature(data)
                 for k, v in sig_info.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
             
             elif t == 10:  
-                print(f"  {Colors.GREEN}PAC_CLIENT_INFO{Colors.RESET}")
+                print(f"{Colors.GREEN}PAC_CLIENT_INFO{Colors.RESET}")
                 ci = parse_pac_client_info(data)
                 for k, v in ci.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
             
             elif t == 12:  
-                print(f"  {Colors.GREEN}PAC_UPN_DNS_INFO{Colors.RESET}")
+                print(f"{Colors.GREEN}PAC_UPN_DNS_INFO{Colors.RESET}")
                 upn = parse_pac_upn_dns_info(data)
                 for k, v in upn.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
             
             elif t == 17: 
-                print(f"  {Colors.GREEN}PAC_ATTRIBUTES_INFO{Colors.RESET}")
+                print(f"{Colors.GREEN}PAC_ATTRIBUTES_INFO{Colors.RESET}")
                 attr = parse_pac_attributes_info(data)
                 for k, v in attr.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
             
             elif t == 18: 
-                print(f"  {Colors.GREEN}PAC_REQUESTOR{Colors.RESET}")
+                print(f"{Colors.GREEN}PAC_REQUESTOR{Colors.RESET}")
                 req = parse_pac_requestor(data)
                 for k, v in req.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
             
             elif t == 20: 
-                print(f"  {Colors.GREEN}PAC_CLAIMS_INFO{Colors.RESET}")
+                print(f"{Colors.GREEN}PAC_CLAIMS_INFO{Colors.RESET}")
                 claims = parse_pac_claims_info(data)
                 for k, v in claims.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
             
             else:
-                print(f"  {Colors.YELLOW}Unknown PAC type {t} (size: {len(data)} bytes){Colors.RESET}")
+                print(f"{Colors.YELLOW}Unknown PAC type {t} (size: {len(data)} bytes){Colors.RESET}")
                 if len(data) <= 100:
                     print(f"    Hex: {Colors.DIM}{data.hex()}{Colors.RESET}")
                 else:
