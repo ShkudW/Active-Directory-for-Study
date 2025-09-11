@@ -2,11 +2,16 @@ from binascii import unhexlify
 from pyasn1.codec.der.decoder import decode as der_decode
 from impacket.krb5.asn1 import (AS_REQ, AS_REP, AP_REQ, TGS_REP,Authenticator,EncryptedData, PA_ENC_TS_ENC,EncASRepPart, EncTGSRepPart, EncTicketPart)
 from impacket.krb5.crypto import _enctype_table, Key
-from datetime import datetime
+from datetime import datetime, timezone
 import argparse
 import sys
-
-from pyasn1.codec.der.decoder import decode as der_decode
+from impacket.krb5.pac import PAC_LOGON_INFO
+from impacket.krb5 import pac as _pac
+from impacket.dcerpc.v5.rpcrt import TypeSerialization1
+from impacket.krb5.constants import ChecksumTypes
+from struct import unpack_from
+import datetime as _dt
+import builtins as _bi
 from impacket.krb5.asn1 import EncTicketPart, AuthorizationData
 try:
     from impacket.krb5.pac import KERB_VALIDATION_INFO as _VALIDATION_CLS
@@ -16,10 +21,46 @@ except Exception:
     except Exception:
         _VALIDATION_CLS = None
 
-from struct import unpack_from
-from datetime import datetime, timezone
+##################################################
 
-################################################## COLORRRRRRRR
+PAC_VERBOSE = False
+
+##################################################
+
+int = _bi.int
+str = _bi.str
+len = _bi.len
+bytes = _bi.bytes
+
+##################################################
+
+PAC_ATTRS = {  
+    0x00000001: "PAC_WAS_REQUESTED",
+    0x00000002: "PAC_WAS_GIVEN_IMPLICITLY",
+}
+
+##################################################
+def flags_to_names_map(val: int, mapping: dict) -> str:
+    try:
+        names = [name for bit, name in mapping.items() if val & bit]
+        return ", ".join(names) if names else "0"
+    except Exception:
+        return str(val)
+
+##################################################
+def _nt_to_dt_str(nt: int) -> str:
+    try:
+        if nt in (0, None):
+            return "Never"
+        # Infinity (absolute) ב־PAC:
+        if nt == 0x7FFFFFFFFFFFFFFF or nt == 0x7fffffff_ffffffff:
+            return "Infinity"
+        unix_seconds = (nt / 10_000_000) - 11644473600
+        return _dt.datetime.utcfromtimestamp(unix_seconds).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(nt)
+
+################################################## 
 
 class Colors:
     RESET   = "\033[0m"
@@ -31,11 +72,256 @@ class Colors:
     MAGENTA = "\033[35m"
     CYAN    = "\033[36m"
     WHITE   = "\033[37m"
+    DIM     = "\033[2m"
+##################################################
+
+FLAG_MASKS = [
+    (0x40000000, "forwardable"),
+    (0x20000000, "forwarded"),
+    (0x10000000, "proxiable"),
+    (0x08000000, "proxy"),
+    (0x04000000, "may_postdate"),
+    (0x02000000, "postdated"),
+    (0x01000000, "invalid"),
+    (0x00800000, "renewable"),
+    (0x00400000, "initial"),
+    (0x00200000, "pre_authent"),
+    (0x00100000, "hw_authent"),
+    (0x00040000, "ok_as_delegate"), 
+    (0x00010000, "name_canonicalize"),
+]
+
+##################################################
+GROUP_ATTRS = {
+    0x00000001: "MANDATORY",
+    0x00000002: "ENABLED_BY_DEFAULT",
+    0x00000004: "ENABLED",
+    0x00000008: "OWNER",
+    0x00000010: "USE_FOR_DENY_ONLY",
+    0x00000020: "INTEGRITY",
+    0x00000040: "INTEGRITY_ENABLED",
+    0x00000080: "RESOURCE",
+    0x20000000: "LOGON_ID",
+    0x40000000: "SID_LOGON",
+    0x80000000: "SID_AND_ATTRIBUTES_SE_GROUP_MANDATORY", 
+}
+
+##################################################
+
+RID_NAME_MAP = {
+    512: "Domain Admins",
+    513: "Domain Users",
+    514: "Domain Guests",
+    515: "Domain Computers",
+    516: "Domain Controllers",
+    518: "Schema Admins",
+    519: "Enterprise Admins",
+    520: "Group Policy Creator Owners",
+    544: "Administrators",
+    545: "Users",
+    546: "Guests",
+    551: "Backup Operators",
+}
+##################################################
+UAC_FLAGS = {
+    0x0001: "SCRIPT",
+    0x0002: "ACCOUNTDISABLE",
+    0x0010: "HOMEDIR_REQUIRED",
+    0x0020: "LOCKOUT",
+    0x0080: "PASSWD_NOTREQD",
+    0x0100: "PASSWD_CANT_CHANGE",
+    0x0200: "ENCRYPTED_TEXT_PWD_ALLOWED",
+    0x0400: "TEMP_DUPLICATE_ACCOUNT",
+    0x0800: "NORMAL_ACCOUNT",
+    0x10000: "DONT_EXPIRE_PASSWORD",
+    0x200000: "USE_DES_KEY_ONLY",
+    0x400000: "DONT_REQ_PREAUTH",
+    0x800000: "PASSWORD_EXPIRED",
+    0x1000000: "TRUSTED_TO_AUTH_FOR_DELEGATION",
+    0x40000: "SMARTCARD_REQUIRED",
+    0x80000: "TRUSTED_FOR_DELEGATION",
+    0x04000000: "PARTIAL_SECRETS_ACCOUNT",
+}
+
+##################################################
+
+SE_GROUP_ATTRS = {
+    0x00000001: "SE_GROUP_MANDATORY",
+    0x00000002: "SE_GROUP_ENABLED_BY_DEFAULT",
+    0x00000004: "SE_GROUP_ENABLED",
+    0x00000008: "SE_GROUP_OWNER",
+    0x00000010: "SE_GROUP_USE_FOR_DENY_ONLY",
+    0x20000000: "SE_GROUP_RESOURCE",
+    0x40000000: "SE_GROUP_LOGON_ID_LOW",
+    0x80000000: "SE_GROUP_LOGON_ID_HIGH",
+}
+
+##################################################
+CHECKSUM_NAMES = {
+    0x00000000: "NONE",
+    0x00000001: "CRC32",
+    0x00000007: "RSA_MD5",
+    0x0000000F: "HMAC_SHA1_96_AES128",
+    0x00000010: "HMAC_MD5",
+    0x00000011: "HMAC_SHA1_96_AES256",
+}
+##################################################
+
+_CHECKSUM_INFO = {
+    0x10: ("HMAC_MD5 (RC4-HMAC)", 16),
+    0x11: ("HMAC_SHA1_96_AES128", 12),
+    0x12: ("HMAC_SHA1_96_AES256", 12),
+}
+
+##################################################
+
+PAC_ATTR= {
+    0x00000001: "PAC_WAS_REQUESTED",
+    0x00000002: "PAC_WAS_GIVEN_IMPLICITLY",
+}
+
+##################################################
+
+USER_FLAGS = {
+    0x00000020: "LOGON_EXTRA_SIDS",
+}
+##################################################
+
+PAC_ATTR_FLAGS = {
+    0x00000001: "PAC_WAS_REQUESTED",
+    0x00000002: "PAC_WAS_GIVEN_IMPLICITLY",
+}
+##################################################
+
+def parse_pac_claims_info(buf: bytes):
+    out = {}
+    try:
+        if len(buf) < 16:
+            return {"_error": f"ClaimsInfo too short ({len(buf)} bytes)"}
+
+        version = unpack_from("<I", buf, 0)[0]
+        length  = unpack_from("<I", buf, 4)[0]
+
+        out["Version"] = version
+        out["ClaimsLength"] = length
+
+        if length > 0 and len(buf) >= 8 + length:
+            claims_blob = buf[8:8+length]
+            out["ClaimsHex"] = claims_blob.hex()
+        else:
+            out["ClaimsHex"] = "<empty>"
+    except Exception as e:
+        out["_error"] = f"parse_pac_claims_info failed: {e}"
+    return out
+
+##################################################
+
+def parse_pac_signature(buf: bytes):
+    out = {}
+    if len(buf) < 4:
+        return out
+
+    sig_type = unpack_from("<I", buf, 0)[0]
+    algo_name, want_len = _CHECKSUM_INFO.get(sig_type, (None, None))
+
+    sig_raw = buf[4:]
+    if want_len is not None and len(sig_raw) >= want_len:
+        sig = sig_raw[:want_len]
+    else:
+        sig = sig_raw.rstrip(b"\x00")
+
+    out["SignatureType"] = f"{sig_type} (0x{sig_type:08x})"
+    if algo_name:
+        out["SignatureAlgo"] = algo_name
+    out["SignatureLen"] = len(sig)
+    out["Signature"] = sig.hex()
+    return out
+##################################################
+
+def pac_coverage_report(pac_bytes: bytes, pac):
+    total = len(pac_bytes)
+
+    cbuf = pac.get('cBuffers', 0)
+    hdr_dir_len = 8 + 16 * cbuf 
+    spans = []
+    for e in pac['entries']:
+        start = e['offset']; end = e['offset'] + e['size']
+        ok = 0 <= start <= end <= total
+        spans.append((start, end, ok, e['type']))
+
+    spans.append((0, min(hdr_dir_len, total), True, -1)) 
+
+    spans.sort()
+    covered = 0
+    last_end = 0
+    notes = []
+    for start, end, ok, t in spans:
+        if not ok:
+            notes.append(f"type={t} out-of-bounds [{start}:{end}] total={total}")
+            continue
+
+        if start > last_end:
+            gap_size = start - last_end
+            if start % 8 == 0 and gap_size <= 7:
+                notes.append(f"expected 8-byte padding [{last_end}:{start}]")
+            else:
+                notes.append(f"gap [{last_end}:{start}]")
+
+        covered += max(0, end - max(last_end, start))
+        last_end = max(last_end, end)
+
+    if last_end < total:
+        tail_gap = total - last_end
+        if tail_gap <= 7:
+            notes.append(f"expected tail padding [{last_end}:{total}]")
+            covered += tail_gap
+        else:
+            notes.append(f"gap [{last_end}:{total}]")
+
+    pct = (covered / total * 100.0) if total else 0.0
+    print(f"{Colors.DIM}PAC coverage:{Colors.RESET} {covered}/{total} bytes ({pct:.1f}%)")
+    if notes:
+        print(f"{Colors.DIM}PAC notes:{Colors.RESET} " + " | ".join(notes))
+
+##################################################
+
+def group_attr_names(attrs: int) -> str:
+    names = [name for bit, name in GROUP_ATTRS.items() if attrs & bit]
+    return ", ".join(names) if names else f"0x{attrs:08x}"
+
+##################################################
+
+def flags_to_names_masked(v: int):
+    names = [name for mask, name in FLAG_MASKS if v & mask]
+    return names or [f"0x{v:08x}"]
+
+##################################################
 
 def flags_to_names(v: int):
     KERB_FLAGS = [(1,"forwardable"),(8,"renewable"),(9,"initial"),(10,"pre_authent"),(15,"enc_pa_rep")]
     names = [name for bit, name in KERB_FLAGS if v & (1 << bit)]
     return names or [f"0x{v:08x}"]
+
+##################################################
+
+def sid_to_str(sid_obj) -> str | None:
+    try:
+        return sid_obj.formatCanonical() if hasattr(sid_obj, "formatCanonical") else str(sid_obj)
+    except Exception:
+        try:
+            return str(sid_obj)
+        except Exception:
+            return None
+            
+##################################################
+
+def join_domain_sid_and_rid(domain_sid_str: str | None, rid: int | None) -> str | None:
+    if not domain_sid_str or rid is None:
+        return None
+    if domain_sid_str.startswith("S-"):
+        return f"{domain_sid_str}-{rid}"
+    return None
+##################################################
 
 def read_utf16le(buf, off, ln):
     try:
@@ -44,6 +330,7 @@ def read_utf16le(buf, off, ln):
     except Exception:
         pass
     return None
+##################################################
 
 def filetime_to_dt_str(lo, hi):
     ft = (int(hi) << 32) | int(lo)
@@ -51,6 +338,8 @@ def filetime_to_dt_str(lo, hi):
     unix_100ns = ft - 116444736000000000
     ts = unix_100ns / 10_000_000
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+##################################################
 
 def extract_pac_bytes_from_ad(ad_blob: bytes) -> bytes:
     if not (len(ad_blob) > 0 and ad_blob[0] == 0x30):
@@ -70,6 +359,7 @@ def extract_pac_bytes_from_ad(ad_blob: bytes) -> bytes:
             except Exception:
                 pass
     raise ValueError("AD-WIN2K-PAC not found in AuthorizationData")
+##################################################
 
 def parse_pac_raw(pac: bytes):
     if len(pac) < 8:
@@ -85,34 +375,36 @@ def parse_pac_raw(pac: bytes):
         entries.append({"index": i, "type": ulType, "size": cbSize, "offset": offset,"data": pac[offset: offset + cbSize]})
     return {"cBuffers": cBuffers, "version": version, "entries": entries}
 
-def _read_us_selfrel(buf, us):
-    try:
-        ln = int(us['Length']); off = int(us['Buffer'])
-        return read_utf16le(buf, off, ln) or ""
-    except Exception:
-        try: return us.string
-        except Exception: return str(us)
+##################################################
 
-def parse_pac_logon_info(buf_bytes: bytes):
-    info = {}
+def _read_us_selfrel(buf: bytes, us) -> str:
     try:
-        if _VALIDATION_CLS is None:
-            raise RuntimeError("No VALIDATION_INFO in impacket")
-        logon = _VALIDATION_CLS(); logon.fromString(buf_bytes)
-        for k in ("UserId","PrimaryGroupId","GroupCount"):
-            try: info[k] = int(logon[k])
-            except Exception: pass
-        try: info["UserName"] = _read_us_selfrel(buf_bytes, logon['UserName']) or _read_us_selfrel(buf_bytes, logon['EffectiveName'])
-        except Exception: pass
-        try: info["LogonDomainName"] = _read_us_selfrel(buf_bytes, logon['LogonDomainName'])
-        except Exception: pass
-        try:
-            sid = logon['UserSid']
-            info["UserSid"] = sid.formatCanonical() if hasattr(sid,"formatCanonical") else str(sid)
-        except Exception: pass
-    except Exception as e:
-        info["_error"] = f"VALIDATION_INFO parse failed: {e}"
-    return {k:v for k,v in info.items() if v not in (None,"",[])}
+        ln  = _bi.int(us['Length'])
+        off = _bi.int(us['Buffer'])
+        if ln and 0 <= off <= len(buf) - ln:
+            return buf[off:off+ln].decode('utf-16le', errors='ignore')
+    except Exception:
+        pass
+    try:
+        return us.string
+    except Exception:
+        return ""
+
+##################################################
+
+def _filetime_to_str_ft(ft_obj) -> str:
+    try:
+        lo = int(ft_obj['dwLowDateTime']); hi = int(ft_obj['dwHighDateTime'])
+        if lo == 0xFFFFFFFF and hi == 0x7FFFFFFF:
+            return "Infinity (absolute time)"
+        val = (hi << 32) | lo
+        if val == 0:
+            return "-"
+        import datetime
+        return (datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=val/10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return "-"
+##################################################
 
 def parse_pac_client_info(buf: bytes):
     out = {}
@@ -123,6 +415,8 @@ def parse_pac_client_info(buf: bytes):
         out["ClientId"]   = filetime_to_dt_str(lo, hi)
     return out
 
+##################################################
+
 def parse_pac_upn_dns_info(buf: bytes):
     out = {}
     if len(buf) >= 12:
@@ -132,6 +426,7 @@ def parse_pac_upn_dns_info(buf: bytes):
         if dns: out["DNSDomainName"] = dns
         out["UPN_Flags"] = f"0x{flags:08x}"
     return out
+##################################################
 
 def parse_sid(buf: bytes, offset: int = 0):
     try:
@@ -144,96 +439,531 @@ def parse_sid(buf: bytes, offset: int = 0):
     except Exception:
         return None
 
+##################################################
+
 def parse_pac_requestor(buf: bytes):
     sid = parse_sid(buf, 0); return {"UserSid": sid} if sid else {}
 
-def parse_pac_signature(buf: bytes):
+##################################################
+
+
+def _fmt_gt(asn1_time) -> str:
+    s = str(asn1_time)
+    try:
+        return _dt.datetime.strptime(s, "%Y%m%d%H%M%SZ").strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return s
+
+##################################################
+
+def _explain_attr_english(name: str) -> str | None:
+    n = name.strip().upper()
+    if n == "PAC_WAS_REQUESTED":
+        return "— KDC returned a PAC because the client requested it."
+    if n == "PAC_WAS_GIVEN_IMPLICITLY":
+        return "— KDC included a PAC even if the client didn't explicitly request it."
+    return None
+
+##################################################
+
+def parse_pac_attributes_info(buf: bytes):
     out = {}
     if len(buf) >= 4:
-        sig_type = unpack_from("<I", buf, 0)[0]
-        out["SignatureType"] = f"{sig_type} (0x{sig_type:08x})"
-        out["Signature"]     = buf[4:].hex()
+        flags = unpack_from("<I", buf, 0)[0]
+        names = [name for bit, name in PAC_ATTR_FLAGS.items() if flags & bit]
+        out["Flags"] = ", ".join(names) if names else ""
     return out
+
+##################################################
+
+def _filetime_to_iso(ft) -> str:
+    try:
+        lo = int(ft['dwLowDateTime']); hi = int(ft['dwHighDateTime'])
+        if lo == 0xFFFFFFFF and hi == 0x7FFFFFFF:
+            return "Infinity (absolute time)"
+        val = (hi << 32) | lo
+        if val == 0:
+            return "-"
+        base = _dt.datetime(1601, 1, 1)
+        return (base + _dt.timedelta(microseconds=val/10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return "-"
+
+##################################################
+
+def parse_pac_logon_info(buf_bytes: bytes):
+    info = {"User": {}, "Domain": {}, "Groups": [], "ExtraSids": [], "ResourceGroups": [], "Times": {}}
+    
+    try:
+        ts1 = TypeSerialization1(buf_bytes)
+        newdata = buf_bytes[len(ts1)+4:]
+        try:
+            from impacket.krb5.pac import KERB_VALIDATION_INFO
+            kvi = KERB_VALIDATION_INFO()
+        except ImportError:
+            try:
+                from impacket.krb5.pac import VALIDATION_INFO as KERB_VALIDATION_INFO
+                kvi = KERB_VALIDATION_INFO()
+            except ImportError:
+                print(f"    {Colors.RED}Could not import KERB_VALIDATION_INFO{Colors.RESET}")
+                return {"_error": "Could not import KERB_VALIDATION_INFO"}
+        
+        kvi.fromString(newdata)
+        kvi.fromStringReferents(newdata[len(kvi.getData()):])
+
+
+        try:
+            info["User"]["RID"] = int(kvi["UserId"])
+            print(f"    {Colors.GREEN}User RID: {info['User']['RID']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading UserId: {e}{Colors.RESET}")
+
+        try:
+            info["Domain"]["PrimaryGroupId"] = int(kvi["PrimaryGroupId"])
+            print(f"    {Colors.GREEN}Primary Group RID: {info['Domain']['PrimaryGroupId']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading PrimaryGroupId: {e}{Colors.RESET}")
+
+        try:
+            info["Domain"]["GroupCount"] = int(kvi["GroupCount"])
+            print(f"    {Colors.GREEN}Group Count: {info['Domain']['GroupCount']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading GroupCount: {e}{Colors.RESET}")
+
+        # שמות - נסה שיטות שונות
+        try:
+            if kvi["EffectiveName"]:
+                info["User"]["UserName"] = str(kvi["EffectiveName"])
+                print(f"    {Colors.GREEN}Effective Name: {info['User']['UserName']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading EffectiveName: {e}{Colors.RESET}")
+            try:
+                if kvi["UserName"]:
+                    info["User"]["UserName"] = str(kvi["UserName"])
+                    print(f"    {Colors.GREEN}User Name: {info['User']['UserName']}{Colors.RESET}")
+            except Exception as e2:
+                print(f"    {Colors.RED}Error reading UserName: {e2}{Colors.RESET}")
+
+        try:
+            if kvi["FullName"]:
+                info["User"]["FullName"] = str(kvi["FullName"])
+                print(f"    {Colors.GREEN}Full Name: {info['User']['FullName']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading FullName: {e}{Colors.RESET}")
+
+        try:
+            if kvi["LogonDomainName"]:
+                info["Domain"]["LogonDomainName"] = str(kvi["LogonDomainName"])
+                print(f"    {Colors.GREEN}Logon Domain: {info['Domain']['LogonDomainName']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading LogonDomainName: {e}{Colors.RESET}")
+
+        try:
+            if kvi["LogonServer"]:
+                info["LogonServer"] = str(kvi["LogonServer"])
+                print(f"    {Colors.GREEN}Logon Server: {info['LogonServer']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading LogonServer: {e}{Colors.RESET}")
+
+        try:
+            info["User"]["LogonCount"] = int(kvi["LogonCount"])
+            print(f"    {Colors.GREEN}Logon Count: {info['User']['LogonCount']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading LogonCount: {e}{Colors.RESET}")
+
+        try:
+            info["User"]["BadPasswordCount"] = int(kvi["BadPasswordCount"])
+            print(f"    {Colors.GREEN}Bad Password Count: {info['User']['BadPasswordCount']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading BadPasswordCount: {e}{Colors.RESET}")
+
+        try:
+            info["User"]["UserAccountControl"] = int(kvi["UserAccountControl"])
+            uac = info["User"]["UserAccountControl"]
+            uac_names = flags_to_names_map(uac, UAC_FLAGS)
+            print(f"    {Colors.GREEN}User Account Control: {uac} ({uac_names}){Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading UserAccountControl: {e}{Colors.RESET}")
+
+        try:
+            info["User"]["UserFlags"] = int(kvi["UserFlags"])
+            uf = info["User"]["UserFlags"]
+            uf_names = flags_to_names_map(uf, USER_FLAGS)
+            print(f"    {Colors.GREEN}User Flags: {uf} ({uf_names}){Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading UserFlags: {e}{Colors.RESET}")
+
+        try:
+            if kvi["LogonDomainId"]:
+                info["Domain"]["LogonDomainId"] = kvi["LogonDomainId"].formatCanonical()
+                print(f"    {Colors.GREEN}Logon Domain SID: {info['Domain']['LogonDomainId']}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading LogonDomainId: {e}{Colors.RESET}")
+
+        try:
+            if hasattr(kvi, "UserSid") and kvi.UserSid:
+                info["User"]["UserSid"] = kvi.UserSid.formatCanonical()
+                print(f"    {Colors.GREEN}User SID: {info['User']['UserSid']}{Colors.RESET}")
+            else:
+                domain_sid = info["Domain"].get("LogonDomainId")
+                user_rid = info["User"].get("RID")
+                if domain_sid and user_rid:
+                    user_sid = f"{domain_sid}-{user_rid}"
+                    info["User"]["UserSid"] = user_sid
+                    print(f"    {Colors.GREEN}User SID (calculated): {user_sid}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading UserSid: {e}{Colors.RESET}")
+
+        time_fields = [
+            ("LogonTime", "Logon Time"),
+            ("LogoffTime", "Logoff Time"), 
+            ("KickOffTime", "Kickoff Time"),
+            ("PasswordLastSet", "Password Last Set"),
+            ("PasswordCanChange", "Password Can Change"),
+            ("PasswordMustChange", "Password Must Change"),
+            ("LastSuccessfulILogon", "Last Successful Logon"),
+            ("LastFailedILogon", "Last Failed Logon")
+        ]
+
+        print(f"    {Colors.GREEN}Times:{Colors.RESET}")
+        for field_name, display_name in time_fields:
+            try:
+                if hasattr(kvi, field_name):
+                    ft = getattr(kvi, field_name)
+                    if ft and hasattr(ft, 'dwLowDateTime') and hasattr(ft, 'dwHighDateTime'):
+                        lo = int(ft.dwLowDateTime)
+                        hi = int(ft.dwHighDateTime)
+                        nt_time = (hi << 32) | lo
+                        if nt_time != 0:
+                            info["Times"][field_name] = nt_time
+                            time_str = _nt_to_dt_str(nt_time)
+                            print(f"      {display_name}: {Colors.CYAN}{time_str}{Colors.RESET}")
+            except Exception as e:
+                if "0" not in str(e) and "None" not in str(e):
+                    print(f"      {Colors.DIM}Could not read {field_name}{Colors.RESET}")
+
+        try:
+            dom_sid = info["Domain"].get("LogonDomainId")
+            gc = int(kvi["GroupCount"])
+            print(f"    {Colors.GREEN}Groups ({gc}):{Colors.RESET}")
+            
+            if gc > 0 and kvi["GroupIds"]:
+                gids = kvi["GroupIds"]
+                for i in range(gc):
+                    try:
+                        rid = int(gids[i]["RelativeId"])
+                        attrs = int(gids[i]["Attributes"])
+                        sid = join_domain_sid_and_rid(dom_sid, rid) if dom_sid else None
+                        group_name = RID_NAME_MAP.get(rid, "")
+                        
+                        info["Groups"].append({
+                            "RID": rid, 
+                            "SID": sid, 
+                            "Attributes": attrs,
+                            "Name": group_name
+                        })
+                        
+                        name_part = f" ({group_name})" if group_name else ""
+                        attrs_str = flags_to_names_map(attrs, GROUP_ATTRS)
+                        print(f"      RID: {Colors.YELLOW}{rid}{Colors.RESET}, SID: {Colors.CYAN}{sid}{Colors.RESET}{name_part}")
+                        print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                    except Exception as e:
+                        if str(e) not in ["0", "'string'", "None"]:
+                               print(f"    {Colors.DIM}Could not read LogonScript{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading groups: {e}{Colors.RESET}")
+
+        try:
+            sc = int(kvi["SidCount"])
+            print(f"    {Colors.GREEN}Extra SIDs ({sc}):{Colors.RESET}")
+            
+            if sc > 0 and kvi["ExtraSids"]:
+                extra_sids = kvi["ExtraSids"]
+                for i in range(sc):
+                    try:
+                        esid = extra_sids[i]["Sid"].formatCanonical()
+                        attrs = int(extra_sids[i]["Attributes"])
+                        info["ExtraSids"].append({"SID": esid, "Attributes": attrs})
+                        
+                        attrs_str = flags_to_names_map(attrs, SE_GROUP_ATTRS)
+                        print(f"      SID: {Colors.CYAN}{esid}{Colors.RESET}")
+                        print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                    except Exception as e:
+                        print(f"      {Colors.RED}Error reading extra SID {i}: {e}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading extra SIDs: {e}{Colors.RESET}")
+
+        try:
+            rgc = int(kvi["ResourceGroupCount"])
+            print(f"    {Colors.GREEN}Resource Groups ({rgc}):{Colors.RESET}")
+            
+            if rgc > 0:
+                base_sid = None
+                if kvi["ResourceGroupDomainSid"] and kvi["ResourceGroupDomainSid"] != b'':
+                    base_sid = kvi["ResourceGroupDomainSid"].formatCanonical()
+                    info["Domain"]["ResourceGroupDomainSid"] = base_sid
+                    print(f"      Resource Group Domain SID: {Colors.CYAN}{base_sid}{Colors.RESET}")
+                else:
+                    base_sid = info["Domain"].get("LogonDomainId")
+
+                if kvi["ResourceGroupIds"]:
+                    rgids = kvi["ResourceGroupIds"]
+                    for i in range(rgc):
+                        try:
+                            rid = int(rgids[i]["RelativeId"])
+                            attrs = int(rgids[i]["Attributes"])
+                            sid = join_domain_sid_and_rid(base_sid, rid) if base_sid else None
+                            group_name = RID_NAME_MAP.get(rid, "")
+                            
+                            info["ResourceGroups"].append({
+                                "RID": rid, 
+                                "SID": sid, 
+                                "Attributes": attrs,
+                                "Name": group_name
+                            })
+                            
+                            name_part = f" ({group_name})" if group_name else ""
+                            attrs_str = flags_to_names_map(attrs, GROUP_ATTRS)
+                            print(f"      RID: {Colors.YELLOW}{rid}{Colors.RESET}, SID: {Colors.CYAN}{sid}{Colors.RESET}{name_part}")
+                            print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                        except Exception as e:
+                            print(f"      {Colors.RED}Error reading resource group {i}: {e}{Colors.RESET}")
+        except Exception as e:
+            print(f"    {Colors.RED}Error reading resource groups: {e}{Colors.RESET}")
+
+        additional_fields = [
+            ("LogonScript", "Logon Script"),
+            ("ProfilePath", "Profile Path"), 
+            ("HomeDirectory", "Home Directory"),
+            ("HomeDirectoryDrive", "Home Directory Drive"),
+            ("SubAuthStatus", "SubAuth Status"),
+        ]
+
+        for field_name, display_name in additional_fields:
+            try:
+                if hasattr(kvi, field_name):
+                    field_value = getattr(kvi, field_name)
+                    if field_value and hasattr(field_value, 'string'):
+                        value = field_value.string
+                        if value and value.strip():
+                            info["User"][field_name] = value
+                            print(f"    {Colors.GREEN}{display_name}: {Colors.CYAN}{value}{Colors.RESET}")
+            except Exception as e:
+                if "0" not in str(e) and "string" not in str(e):
+                    print(f"    {Colors.RED}Error reading {field_name}: {e}{Colors.RESET}")
+
+        try:
+            if hasattr(kvi, "UserSessionKey") and kvi["UserSessionKey"]:
+                session_key = bytes(kvi["UserSessionKey"])
+                if session_key != b'\x00' * len(session_key):
+                    info["User"]["UserSessionKey"] = session_key.hex()
+                    print(f"    {Colors.GREEN}User Session Key: {Colors.CYAN}{session_key.hex()}{Colors.RESET}")
+                else:
+                    print(f"    {Colors.DIM}User Session Key: (empty - all zeros){Colors.RESET}")
+        except Exception as e:
+            if str(e) not in ["0", "'UserSessionKey'"]:
+                print(f"    {Colors.RED}Error reading UserSessionKey: {e}{Colors.RESET}")
+
+    except Exception as e:
+        print(f"    {Colors.RED}PAC_LOGON_INFO parse failed: {e}{Colors.RESET}")
+        return {"_error": f"PAC_LOGON_INFO parse failed: {e}"}
+    
+    return info
+
+##################################################
 
 def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes):
     enc, _ = der_decode(decrypted_enc_ticket_part_bytes, asn1Spec=EncTicketPart())
 
-    print(f"{Colors.BOLD}{Colors.MAGENTA}=== EncTicketPart ==={Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.MAGENTA}ENC Part Ticket:{Colors.RESET}")
+    print("=====================")
     try:
         flags_int = int(enc['flags'])
     except Exception:
         try:
-            bits = list(enc['flags'].asNumbers()); v=0
-            for b in bits: v = (v<<1) | (1 if b else 0)
+            bits = list(enc['flags'].asNumbers())
+            v = 0
+            for b in bits:
+                v = (v << 1) | (1 if b else 0)
             flags_int = v
         except Exception:
             flags_int = None
 
     if flags_int is not None:
-        print(f"{Colors.YELLOW}Ticket Flags:{Colors.RESET} 0x{flags_int:08x} "
-              f"-> {Colors.CYAN}{', '.join(flags_to_names(flags_int))}{Colors.RESET}")
+        names = flags_to_names_masked(flags_int)
+        print(f"{Colors.YELLOW}Ticket Flags:{Colors.RESET} {Colors.CYAN}{', '.join(names)}{Colors.RESET}")
     else:
         print(f"{Colors.RED}Ticket Flags: (unavailable){Colors.RESET}")
 
     kt = int(enc['key']['keytype']); kv = bytes(enc['key']['keyvalue']).hex()
-    print(f"{Colors.YELLOW}Session Key:{Colors.RESET} etype={Colors.GREEN}{kt}{Colors.RESET} "
-          f"key={Colors.CYAN}{kv}{Colors.RESET}")
-    print(f"{Colors.YELLOW}Realm:{Colors.RESET} {Colors.GREEN}{str(enc['crealm'])}{Colors.RESET}")
+    print(f"{Colors.YELLOW}Session Key:{Colors.RESET} {Colors.CYAN}{kv}{Colors.RESET}, {Colors.CYAN}etype: {kt}{Colors.RESET}")
+    print(f"{Colors.YELLOW}Realm:{Colors.RESET} {Colors.CYAN}{str(enc['crealm'])}{Colors.RESET}")
 
     cname = enc['cname']; nt = None
     try: nt = int(cname['name-type'])
     except Exception: pass
-    names = [str(x) for x in cname['name-string']]
-    print(f"{Colors.YELLOW}Client:{Colors.RESET} type={nt}  name={Colors.CYAN}{'/'.join(names)}{Colors.RESET}")
+    cnames = [str(x) for x in cname['name-string']]
+    print(f"{Colors.YELLOW}Client:{Colors.RESET} {Colors.CYAN}{'/'.join(cnames)}{Colors.RESET}")
 
-    def _gt(field):
-        return str(enc[field]) if field in enc and enc[field].hasValue() else "-"
-    print(f"{Colors.YELLOW}Times:{Colors.RESET} "
-          f"authtime={Colors.CYAN}{_gt('authtime')}{Colors.RESET}, "
-          f"starttime={Colors.CYAN}{_gt('starttime')}{Colors.RESET}, "
-          f"endtime={Colors.CYAN}{_gt('endtime')}{Colors.RESET}, "
-          f"renew-till={Colors.CYAN}{_gt('renew-till')}{Colors.RESET}")
+    at = _fmt_gt(enc['authtime']) if enc['authtime'].hasValue() else "-"
+    st = _fmt_gt(enc['starttime']) if enc['starttime'].hasValue() else "-"
+    et = _fmt_gt(enc['endtime']) if enc['endtime'].hasValue() else "-"
+    rt = _fmt_gt(enc['renew-till']) if enc['renew-till'].hasValue() else "-"
+    print(f"{Colors.YELLOW}Authentication Time: {Colors.RESET}{Colors.CYAN}{at}{Colors.RESET}")
+    print(f"{Colors.YELLOW}Starting Time: {Colors.RESET}{Colors.CYAN}{st}{Colors.RESET}")
+    print(f"{Colors.YELLOW}End Time: {Colors.RESET}{Colors.CYAN}{et}{Colors.RESET}")
+    print(f"{Colors.YELLOW}Renew Till: {Colors.RESET}{Colors.CYAN}{rt}{Colors.RESET}")
 
     if 'authorization-data' in enc and enc['authorization-data'].hasValue():
-        print(f"\n{Colors.BOLD}{Colors.MAGENTA}=== AuthorizationData / PAC ==={Colors.RESET}")
-        for idx, entry in enumerate(enc['authorization-data']):
-            ad_type = int(entry['ad-type']); ad_data = bytes(entry['ad-data'])
-            print(f"{Colors.BLUE}- Entry[{idx}]{Colors.RESET} ad-type={Colors.YELLOW}{ad_type}{Colors.RESET}, "
-                  f"len={Colors.CYAN}{len(ad_data)}{Colors.RESET}")
+        print("  ")
+        pac_bytes = None
+        for entry in enc['authorization-data']:
+            ad_data = bytes(entry['ad-data'])
             try:
                 pac_bytes = extract_pac_bytes_from_ad(ad_data)
+                break
             except Exception:
                 continue
 
-            try:
-                pac = parse_pac_raw(pac_bytes)
-                print(f"  PAC: cBuffers={Colors.GREEN}{pac['cBuffers']}{Colors.RESET}, "
-                      f"Version={Colors.GREEN}{pac['version']}{Colors.RESET}")
-                for e in pac['entries']:
-                    t = e['type']
-                    print(f"    Buffer {e['index']}: type={Colors.YELLOW}{t}{Colors.RESET}, "
-                          f"size={Colors.CYAN}{e['size']}{Colors.RESET}, offset={e['offset']}")
-                    try:
-                        if   t == 1:  info = parse_pac_logon_info(e['data'])
-                        elif t == 10: info = parse_pac_client_info(e['data'])
-                        elif t == 12: info = parse_pac_upn_dns_info(e['data'])
-                        elif t == 17: info = {"Attributes": parse_pac_attributes_info(e['data']).get("Flags","")}
-                        elif t == 18: info = parse_pac_requestor(e['data'])
-                        elif t in (6,7): info = parse_pac_signature(e['data'])
-                        else: info = None
-                        if info:
-                            for k,v in info.items():
-                                print(f"      {Colors.GREEN}{k}{Colors.RESET}: {Colors.CYAN}{v}{Colors.RESET}")
-                    except Exception as ex:
-                        print(f"      {Colors.RED}[parse error type={t}]: {ex}{Colors.RESET}")
-            except Exception as e:
-                print(f"  {Colors.RED}[!] PAC parse failed: {e}{Colors.RESET}")
-    else:
-        print(f"\n{Colors.YELLOW}(No authorization-data present){Colors.RESET}")
+        if pac_bytes is None:
+            print(f"{Colors.YELLOW}(No PAC found inside AuthorizationData){Colors.RESET}")
+            return
+
+        try:
+            pac = parse_pac_raw(pac_bytes)
+            if PAC_VERBOSE:
+                pac_coverage_report(pac_bytes, pac)
+        except Exception as e:
+            print(f"{Colors.RED}[!] PAC parse failed: {e}{Colors.RESET}")
+            return
+
+        print(f"{Colors.BOLD}{Colors.CYAN}PAC Full Analysis:{Colors.RESET}")
+        print("====================")
+        
+        for e in pac['entries']:
+            t = e['type']
+            data = e['data']
+            print(f"\n{Colors.YELLOW}PAC Entry Type {t}:{Colors.RESET}")
+            
+            if t == 1:  
+                print(f"  {Colors.GREEN}PAC_LOGON_INFO (Primary user info){Colors.RESET}")
+                li = parse_pac_logon_info(data)
+                if "_error" in li:
+                    print(f"    {Colors.RED}Error: {li['_error']}{Colors.RESET}")
+                else:
+                    user = li.get("User", {})
+                    domain = li.get("Domain", {})
+                    
+                    if user.get('UserName'):
+                        print(f"    User: {Colors.GREEN}{user['UserName']}{Colors.RESET}")
+                    if user.get('FullName'):
+                        print(f"    Full Name: {Colors.GREEN}{user['FullName']}{Colors.RESET}")
+                    if user.get('RID'):
+                        print(f"    RID: {Colors.YELLOW}{user['RID']}{Colors.RESET}")
+                    if user.get('UserSid'):
+                        print(f"    UserSid: {Colors.CYAN}{user['UserSid']}{Colors.RESET}")
+                    if user.get('LogonCount') is not None:
+                        print(f"    Logon Count: {Colors.CYAN}{user['LogonCount']}{Colors.RESET}")
+                    if user.get('BadPasswordCount') is not None:
+                        print(f"    Bad Password Count: {Colors.CYAN}{user['BadPasswordCount']}{Colors.RESET}")
+                    if user.get('UserAccountControl') is not None:
+                        uac = user['UserAccountControl']
+                        print(f"    User Account Control: {Colors.YELLOW}0x{uac:x}{Colors.RESET} ({Colors.CYAN}{flags_to_names_map(uac, UAC_FLAGS)}{Colors.RESET})")
+                    
+                    if domain.get('LogonDomainName'):
+                        print(f"    Domain: {Colors.GREEN}{domain['LogonDomainName']}{Colors.RESET}")
+                    if domain.get('LogonDomainId'):
+                        print(f"    Domain SID: {Colors.CYAN}{domain['LogonDomainId']}{Colors.RESET}")
+                    if domain.get('PrimaryGroupId'):
+                        pid = domain['PrimaryGroupId']
+                        pname = RID_NAME_MAP.get(pid, "")
+                        print(f"    Primary Group: {Colors.YELLOW}{pid}{Colors.RESET}{' (' + pname + ')' if pname else ''}")
+                    
+                    groups = li.get("Groups", [])
+                    if groups:
+                        print(f"    Groups ({len(groups)}):")
+                        for g in groups:
+                            name_part = f" ({Colors.GREEN}{g.get('Name')}{Colors.RESET})" if g.get('Name') else ""
+                            attrs_str = flags_to_names_map(g.get('Attributes', 0), GROUP_ATTRS)
+                            print(f"      RID: {Colors.YELLOW}{g.get('RID')}{Colors.RESET}, SID: {Colors.CYAN}{g.get('SID')}{Colors.RESET}{name_part}")
+                            print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                    
+                    extra_sids = li.get("ExtraSids", [])
+                    if extra_sids:
+                        print(f"    ExtraSids ({len(extra_sids)}):")
+                        for es in extra_sids:
+                            attrs_str = flags_to_names_map(es.get('Attributes', 0), SE_GROUP_ATTRS)
+                            print(f"      SID: {Colors.CYAN}{es.get('SID')}{Colors.RESET}")
+                            print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                    
+                    resource_groups = li.get("ResourceGroups", [])
+                    if resource_groups:
+                        print(f"    ResourceGroups ({len(resource_groups)}):")
+                        for rg in resource_groups:
+                            name_part = f" ({Colors.GREEN}{rg.get('Name')}{Colors.RESET})" if rg.get('Name') else ""
+                            attrs_str = flags_to_names_map(rg.get('Attributes', 0), GROUP_ATTRS)
+                            print(f"      RID: {Colors.YELLOW}{rg.get('RID')}{Colors.RESET}, SID: {Colors.CYAN}{rg.get('SID')}{Colors.RESET}{name_part}")
+                            print(f"        Attributes: {Colors.GREEN}{attrs_str}{Colors.RESET}")
+                    
+                    times = li.get("Times", {})
+                    if times:
+                        print(f"    Times:")
+                        for time_name, nt_time in times.items():
+                            time_str = _nt_to_dt_str(nt_time)
+                            print(f"      {time_name}: {Colors.CYAN}{time_str}{Colors.RESET}")
+            
+            elif t == 6:
+                print(f"  {Colors.GREEN}PAC_SERVER_CHECKSUM{Colors.RESET}")
+                sig_info = parse_pac_signature(data)
+                for k, v in sig_info.items():
+                    print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
+            
+            elif t == 7: 
+                print(f"  {Colors.GREEN}PAC_PRIVSVR_CHECKSUM (KDC){Colors.RESET}")
+                sig_info = parse_pac_signature(data)
+                for k, v in sig_info.items():
+                    print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
+            
+            elif t == 10:  
+                print(f"  {Colors.GREEN}PAC_CLIENT_INFO{Colors.RESET}")
+                ci = parse_pac_client_info(data)
+                for k, v in ci.items():
+                    print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
+            
+            elif t == 12:  
+                print(f"  {Colors.GREEN}PAC_UPN_DNS_INFO{Colors.RESET}")
+                upn = parse_pac_upn_dns_info(data)
+                for k, v in upn.items():
+                    print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
+            
+            elif t == 17: 
+                print(f"  {Colors.GREEN}PAC_ATTRIBUTES_INFO{Colors.RESET}")
+                attr = parse_pac_attributes_info(data)
+                for k, v in attr.items():
+                    print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
+            
+            elif t == 18: 
+                print(f"  {Colors.GREEN}PAC_REQUESTOR{Colors.RESET}")
+                req = parse_pac_requestor(data)
+                for k, v in req.items():
+                    print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
+            
+            elif t == 20: 
+                print(f"  {Colors.GREEN}PAC_CLAIMS_INFO{Colors.RESET}")
+                claims = parse_pac_claims_info(data)
+                for k, v in claims.items():
+                    print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
+            
+            else:
+                print(f"  {Colors.YELLOW}Unknown PAC type {t} (size: {len(data)} bytes){Colors.RESET}")
+                if len(data) <= 100:
+                    print(f"    Hex: {Colors.DIM}{data.hex()}{Colors.RESET}")
+                else:
+                    print(f"    Hex: {Colors.DIM}{data.hex()[:100]}...{Colors.RESET}")
 
 
+##################################################
 
-#########################################################################################################################
 #COLORRORORORRRRRSSS
 
 RED     = "\033[31m"
@@ -259,13 +989,13 @@ def dt_str(pat: str) -> str:
     except Exception:
         return pat
 
-##################################################################################
+########################################################
 def decrypt(etype: int, key_hex: str, usage: int, cipher_hex: str) -> bytes:
     key = Key(etype, unhexlify(key_hex))
     crypto = _enctype_table[etype]
     return crypto.decrypt(key, usage, unhexlify(cipher_hex))
 
-##################################################################################
+########################################################
 
 def parse_args():
     p = argparse.ArgumentParser(prog="Kerberos.py", description="Kerberos helper")
@@ -323,7 +1053,7 @@ def parse_args():
 
     return p.parse_args()
 
-##################################################################################
+########################################################
 
 def main():
     args = parse_args()
