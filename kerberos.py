@@ -52,6 +52,7 @@ def _nt_to_dt_str(nt: int) -> str:
     try:
         if nt in (0, None):
             return "Never"
+       
         if nt == 0x7FFFFFFFFFFFFFFF or nt == 0x7fffffff_ffffffff:
             return "Infinity"
         unix_seconds = (nt / 10_000_000) - 11644473600
@@ -522,6 +523,7 @@ def parse_pac_logon_info(buf_bytes: bytes):
         kvi.fromString(newdata)
         kvi.fromStringReferents(newdata[len(kvi.getData()):])
 
+
         try:
             info["User"]["RID"] = int(kvi["UserId"])
             print(f"    {Colors.GREEN}User RID: {info['User']['RID']}{Colors.RESET}")
@@ -539,7 +541,8 @@ def parse_pac_logon_info(buf_bytes: bytes):
             print(f"    {Colors.GREEN}Group Count: {info['Domain']['GroupCount']}{Colors.RESET}")
         except Exception as e:
             print(f"    {Colors.RED}Error reading GroupCount: {e}{Colors.RESET}")
-            
+
+  
         try:
             if kvi["EffectiveName"]:
                 info["User"]["UserName"] = str(kvi["EffectiveName"])
@@ -779,6 +782,141 @@ def parse_pac_logon_info(buf_bytes: bytes):
     
     return info
 
+
+#################################################
+
+def parse_gss_api_checksum(checksum_data: bytes):
+    """
+    Parse GSS-API checksum (type 0x8003) properly
+    """
+    if len(checksum_data) < 24:
+        return None
+        
+    # GSS-API checksum structure differs from what I initially thought
+    # The actual structure contains the forwarded TGT directly
+    
+    # Look for KRB-CRED or ticket structures
+    # Application tag [22] = 0x76 for KRB-CRED
+    # But it might be embedded differently
+    
+    # Search for krbtgt service name
+    krbtgt_pos = checksum_data.find(b'krbtgt')
+    if krbtgt_pos >= 0:
+        # Found krbtgt - this indicates a TGT
+        # Now find the ticket structure containing it
+        
+        # Search backwards for SEQUENCE tag that contains this krbtgt
+        for i in range(max(0, krbtgt_pos - 100), krbtgt_pos):
+            if checksum_data[i] == 0x30:  # SEQUENCE
+                # Check if this sequence contains our krbtgt
+                # Parse length to see if it covers krbtgt position
+                # This is the actual ticket structure
+                return extract_ticket_from_position(checksum_data, i)
+    
+    return None
+
+##################################################
+
+def extract_ticket_from_position(data: bytes, pos: int):
+    """
+    Extract ticket structure starting at given position
+    """
+    if pos >= len(data) or data[pos] != 0x30:
+        return None
+        
+    # Parse ASN.1 length
+    length_byte = data[pos + 1]
+    if length_byte & 0x80:  # Long form
+        length_bytes = length_byte & 0x7F
+        if length_bytes <= 2:
+            actual_length = 0
+            for i in range(length_bytes):
+                actual_length = (actual_length << 8) | data[pos + 2 + i]
+            
+            content_start = pos + 2 + length_bytes
+            ticket_data = data[pos:content_start + actual_length]
+            
+            print(f"Found forwarded TGT ticket:")
+            print(f"Size: {len(ticket_data)} bytes")
+            print(f"Data: {ticket_data.hex()}")
+            return ticket_data
+    
+    return None
+
+
+##################################################
+def parse_authenticator_with_cred(pt_a: bytes):
+    try:
+        from impacket.krb5.asn1 import Authenticator, KRB_CRED
+        from pyasn1.codec.der import encoder as der_encoder # ייבוא של המקודד
+
+        auth, _ = der_decode(pt_a, asn1Spec=Authenticator())
+        
+        print(f"{GREEN}[+] Authenticator cname:{RESET}", str(auth['cname']))
+        print(f"{GREEN}[+] Authenticator crealm:{RESET}", str(auth['crealm']))
+        print(f"{GREEN}[+] Authenticator ctime:{RESET}", dt_str(str(auth['ctime'])),
+              "usec:", int(auth['cusec']) if auth['cusec'].hasValue() else "<absent>")
+        
+        if auth['subkey'].hasValue():
+            print(f"{GREEN}[+] Authenticator subkey etype:{RESET}", int(auth['subkey']['keytype']))
+            print(f"{GREEN}[+] Authenticator subkey:{RESET}", bytes(auth['subkey']['keyvalue']).hex())
+            
+        if auth['seq-number'].hasValue():
+            print(f"{GREEN}[+] Sequence number:{RESET}", int(auth['seq-number']))
+        
+        if auth['cksum'].hasValue():
+            cksum = auth['cksum']
+            cksum_type = int(cksum['cksumtype'])
+            cksum_data = bytes(cksum['checksum'])
+            
+            print(f"{YELLOW}[+] Checksum type:{RESET} {cksum_type} (0x{cksum_type:x})")
+            print(f"{YELLOW}[+] Checksum length:{RESET} {len(cksum_data)} bytes")
+            
+            if cksum_type == 0x8003: # GSS-API Checksum
+                print(f"{CYAN}[!] Found GSS-API checksum - parsing for delegation data...{RESET}")
+                
+                if len(cksum_data) >= 24:
+                    import struct
+                    flags = struct.unpack('<I', cksum_data[20:24])[0]
+                    print(f"{CYAN}[+] GSS-API Flags:{RESET} 0x{flags:08x}")
+                    
+                    if flags & 1:
+                        print(f"{BOLD}{GREEN}[!] DELEGATION FLAG SET! Extracting KRB-CRED...{RESET}")
+                        
+                        if len(cksum_data) > 28:
+                            krb_cred_data = cksum_data[28:]
+                            print(f"{BOLD}{MAGENTA}[!] FOUND FORWARDED TGT IN KRB-CRED:{RESET}")
+                            
+                            try:
+                                krb_cred, _ = der_decode(krb_cred_data, asn1Spec=KRB_CRED())
+                                print(f"{GREEN}[+] KRB-CRED parsed successfully!{RESET}")
+                                
+                                if krb_cred['tickets'].hasValue():
+                                    tickets = krb_cred['tickets']
+                                    print(f"{GREEN}[+] Number of tickets in KRB-CRED:{RESET} {len(tickets)}")
+                                    
+                                    for i, ticket in enumerate(tickets):
+                                        print(f"{YELLOW}[+] Ticket {i+1}:{RESET}")
+                                        print(f"    Realm: {Colors.CYAN}{str(ticket['realm'])}{Colors.RESET}")
+                                        sname = ticket['sname']
+                                        snames = [str(x) for x in sname['name-string']]
+                                        print(f"    Service: {Colors.CYAN}{'/'.join(snames)}{Colors.RESET}")
+                                        
+                                       
+                                        raw_ticket_bytes = der_encoder.encode(ticket)
+                                        print(f"    TGT Hex ({len(raw_ticket_bytes)} bytes): {Colors.DIM}{raw_ticket_bytes.hex()}{RESET}")
+                                        
+                                        if 'krbtgt' in '/'.join(snames).lower():
+                                            print(f"{BOLD}{GREEN}    >>> THIS IS THE FORWARDED TGT!{RESET}")
+                            
+                            except Exception as e:
+                                print(f"{RED}[!] Failed to parse KRB-CRED: {e}{RESET}")
+                                print(f"{YELLOW}[!] Raw KRB-CRED data (hex):{RESET} {krb_cred_data.hex()}")
+    
+    except Exception as e:
+        print("[*] Could not parse Authenticator:", e)
+
+
 ##################################################
 
 def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes):
@@ -942,17 +1080,24 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
                 for k, v in upn.items():
                     print(f"    {k}: {Colors.CYAN}{v}{Colors.RESET}")
 
-            elif t == 16:  
+            elif t == 16: 
                 print(f"  {Colors.GREEN}PAC_CREDENTIAL_INFO{Colors.RESET}")
                 if len(data) >= 8:
                     version = unpack_from("<I", data, 0)[0]
-                    enc_type = unpack_from("<I", data, 4)[0]
-                    encrypted_data = data[8:]
+                    type_or_etype = unpack_from("<I", data, 4)[0]
+                    blob = data[8:]
+                    
                     print(f"    Version: {Colors.CYAN}0x{version:08x}{Colors.RESET}")
-                    print(f"    EncryptionType: {Colors.CYAN}0x{enc_type:08x}{Colors.RESET}")
-                    print(f"    Encrypted Credentials: {Colors.CYAN}{encrypted_data.hex()[:32]}...{Colors.RESET}")
-                    print(f"    {Colors.DIM}(Only present with PKINIT/Smart Card auth){Colors.RESET}")
-                        
+                    print(f"    Type/Etype: {Colors.CYAN}{type_or_etype} (0x{type_or_etype:08x}){Colors.RESET}")
+                    print(f"    Credentials Blob Size: {Colors.CYAN}{len(blob)} bytes{Colors.RESET}")
+                    print(f"    Credentials Blob (hex): {Colors.CYAN}{blob.hex()}{Colors.RESET}")
+
+                 
+                    if len(blob) > 200: 
+                        print(f"      {Colors.BOLD}{Colors.GREEN}>>> Blob size is consistent with a TGT for Unconstrained Delegation.{Colors.RESET}")
+                    else:
+                        print(f"      {Colors.BOLD}{Colors.YELLOW}>>> Blob size is TOO SMALL for a TGT. This is likely supplemental credential info (e.g., a nonce or checksum), NOT for delegation.{Colors.RESET}")
+
             elif t == 17: 
                 print(f"{Colors.GREEN}PAC_ATTRIBUTES_INFO{Colors.RESET}")
                 attr = parse_pac_attributes_info(data)
@@ -1011,15 +1156,80 @@ HIDDEN    = "\033[8m"
 
 def dt_str(pat: str) -> str:
     try:
-        return datetime.strptime(pat, "%Y%m%d%H%M%SZ").isoformat() + "Z"
+        dt = datetime.strptime(pat, '%Y%m%d%H%M%SZ')
+        return dt.strftime('%Y-%m-%d %H:%M:%S UTC')
     except Exception:
         return pat
+
 
 ########################################################
 def decrypt(etype: int, key_hex: str, usage: int, cipher_hex: str) -> bytes:
     key = Key(etype, unhexlify(key_hex))
     crypto = _enctype_table[etype]
     return crypto.decrypt(key, usage, unhexlify(cipher_hex))
+
+########################################################
+
+
+
+ 
+########################################################
+  
+def analyze_rpc_data(data: bytes):
+    if len(data) < 16:
+        return
+    
+    print(f"{Colors.CYAN}RPC Analysis:{Colors.RESET}")
+    
+   
+    first_dword = int.from_bytes(data[:4], 'little')
+    print(f"  First DWORD (LE): 0x{first_dword:08x}")
+    
+   
+    rpc_signatures = {
+        0x05000000: "DCE/RPC Request",
+        0x05000002: "DCE/RPC Response", 
+        0x05000003: "DCE/RPC Fault",
+        0x050000c0: "DCE/RPC Request (fragmented)",
+        0x050000c2: "DCE/RPC Response (fragmented)",
+    }
+    
+    signature = first_dword & 0xFF0000FF
+    if signature in rpc_signatures:
+        print(f"  Detected: {rpc_signatures[signature]}")
+    
+  
+    try:
+        version = data[0]
+        ptype = data[1]
+        flags = data[2] 
+        drep = data[3]
+        frag_len = int.from_bytes(data[4:6], 'little')
+        auth_len = int.from_bytes(data[6:8], 'little')
+        call_id = int.from_bytes(data[8:12], 'little')
+        
+        print(f"  RPC Version: {version}")
+        print(f"  Packet Type: {ptype}")
+        print(f"  Flags: 0x{flags:02x}")
+        print(f"  Data Rep: 0x{drep:02x}")
+        print(f"  Fragment Length: {frag_len}")
+        print(f"  Auth Length: {auth_len}")
+        print(f"  Call ID: 0x{call_id:08x}")
+        
+
+        if frag_len == len(data):
+            print(f"[+] Fragment length matches data length")
+        else:
+            print(f"[-] Fragment length mismatch (expected {frag_len}, got {len(data)})")
+            
+    except Exception as e:
+        print(f"  Could not parse as RPC header: {e}")
+    
+    # Look for printable strings
+    text = data.decode('ascii', errors='ignore')
+    printable_chars = sum(1 for c in text if c.isprintable() and c != ' ')
+    print(f"  Printable chars: {printable_chars}/{len(data)} ({printable_chars/len(data)*100:.1f}%)")
+
 
 ########################################################
 
@@ -1077,6 +1287,29 @@ def parse_args():
     grp_c.add_argument("--session-key", help="reply key (AS-REP session key or subkey)")
     grp_c.add_argument("--encpart-etype", type=int, default=23, help="Key etype cipher for client enc-part Default 23, use: (17/18/23)")
 
+    # Service-1 
+    service1 = sub.add_parser("service-1", help="Packet 1 TGS sent to Service")
+    grp_t = service1.add_argument_group("TGS enc-part (ticket)")
+    grp_t_src = grp_t.add_mutually_exclusive_group()
+    grp_t_src.add_argument("--tgs-ticket", help="HEX cipher of service ticket enc-part")
+    grp_t.add_argument("--tgs-service-key", help="service account key (rc4/aes)")
+    grp_t.add_argument("--tgs-ticket-etype", type=int, default=23, help="Key etype cipher for TGS-enc-part Default 23, use: (17/18/23)")
+
+    grp_c = service1.add_argument_group("Client enc-part (EncTGSRepPart)")
+    grp_c_src = grp_c.add_mutually_exclusive_group()
+    grp_c_src.add_argument("--authenticator-cipher", help="HEX cipher of EncTGSRepPart")
+    grp_c.add_argument("--session-key", help="reply key (AS-REP session key or subkey)")
+    grp_c.add_argument("--authenticator-etype", type=int, default=23, help="Key etype cipher for client enc-part Default 23, use: (17/18/23)")    
+
+    # Service-2 
+    service2 = sub.add_parser("service-2", help="Packet 1 TGS sent to Service" )
+    grp_c = service2.add_argument_group("Client enc-part (EncTGSRepPart)")
+    grp_c_src = grp_c.add_mutually_exclusive_group()
+    grp_c_src.add_argument("--encpart-cipher", help="HEX cipher of EncTGSRepPart")
+    grp_c.add_argument("--session-key", help="reply key (AS-REP session key or subkey)")
+    grp_c.add_argument("--encpart-etype", type=int, default=23, help="Key etype cipher for client enc-part Default 23, use: (17/18/23)")   
+
+
     return p.parse_args()
 
 ########################################################
@@ -1107,16 +1340,14 @@ def main():
             print("[*] Decrypted but could not parse PA-ENC-TS-ENC:", e); sys.exit(2)
         return
 
-# AS-REP 
+    # AS-REP 
     if args.mode == "as-rep":
         ticket_cipher_hex   = args.tgt_ticket
         ticket_etype        = args.ticket_etype
         encpart_cipher_hex  = args.client_cipher
         encpart_etype       = args.client_etype
-
         if not any([ticket_cipher_hex, encpart_cipher_hex]):
             print("[!] Provide at least one of: --tgt-ticket or --client-cipher"); sys.exit(1)
-
         if ticket_cipher_hex:
             if not args.krbtgt_key:
                 print("[!] --krbtgt-key is required to decrypt TGT enc-part"); sys.exit(1)
@@ -1132,7 +1363,6 @@ def main():
                 print(f"{GREEN}[+] EncTicketPart session key{RESET}: {kv}")
             except Exception as e:
                 print("[*] Could not parse EncTicketPart:", e)
-
         if encpart_cipher_hex:
             if not args.client_key:
                 print("[!] --client-key is required to decrypt client enc-part"); sys.exit(1)
@@ -1141,17 +1371,42 @@ def main():
             print(f"{MAGENTA}[+] client enc-part decrypted hex:{RESET} {pt_c.hex()}")
             try:
                 encp, _ = der_decode(pt_c, asn1Spec=EncASRepPart())
+                
+              
                 kt = int(encp['key']['keytype'])
                 kv = bytes(encp['key']['keyvalue']).hex()
                 print(f"{GREEN}[+] AS-REP session key etype:{RESET} {kt}")
                 print(f"{GREEN}[+] AS-REP session key:{RESET} {kv}")
+                
+      
+                if encp['nonce'].hasValue():
+                    nonce_val = int(encp['nonce'])
+                    print(f"{YELLOW}[+] nonce:{RESET} 0x{nonce_val:08x} ({nonce_val})")
+                
+                if encp['key-expiration'].hasValue():
+                    print(f"{YELLOW}[+] key-expiration:{RESET}", dt_str(str(encp['key-expiration'])))
+                
+                if encp['flags'].hasValue():
+                    flags_int = int(encp['flags'])  
+                    flag_names = flags_to_names_masked(flags_int)
+                    print(f"{YELLOW}[+] flags:{RESET} 0x{flags_int:08x} ({flag_names})")
+                
+                if encp['last-req'].hasValue():
+                    print(f"{YELLOW}[+] last-req:{RESET} Last requests available")
+                
+                print(f"{YELLOW}[+] srealm:{RESET}", str(encp['srealm']))
+                print(f"{YELLOW}[+] sname:{RESET}", str(encp['sname']))
+                
+            
                 if encp['authtime'].hasValue():   print(f"{YELLOW}[+] authtime:{RESET}",   dt_str(str(encp['authtime'])))
                 if encp['starttime'].hasValue():  print(f"{YELLOW}[+] starttime:{RESET}",  dt_str(str(encp['starttime'])))
                 if encp['endtime'].hasValue():    print(f"{YELLOW}[+] endtime:{RESET}",    dt_str(str(encp['endtime'])))
                 if encp['renew-till'].hasValue(): print(f"{YELLOW}[+] renew-till:{RESET}", dt_str(str(encp['renew-till'])))
+                
             except Exception as e:
                 print("[*] Could not parse EncASRepPart:", e)
         return
+
 
 
 # TGS-REQ
@@ -1195,6 +1450,8 @@ def main():
                 if auth['subkey'].hasValue():
                     print(f"{GREEN}[+] Authenticator subkey etype:{RESET}", int(auth['subkey']['keytype']))
                     print(f"{GREEN}[+] Authenticator subkey:{RESET}", bytes(auth['subkey']['keyvalue']).hex())
+                if auth['seq-number'].hasValue():
+                    print(f"{GREEN}[+] Sequence number:{RESET}", int(auth['seq-number']))
             except Exception as e:
                 print("[*] Could not parse Authenticator:", e)
         return
@@ -1248,6 +1505,102 @@ def main():
                 if encp['renew-till'].hasValue():print(f"{YELLOW}[+] renew-till:{RESET}",dt_str(str(encp['renew-till'])))
             except Exception as e:
                 print("[*] Could not parse EncTGSRepPart:", e)
+        return
+
+    # SERVICE-1 (AP-REQ)
+    if args.mode == "service-1":
+        tgs_cipher_hex = args.tgs_ticket
+        tgs_etype = args.tgs_ticket_etype
+        auth_cipher_hex = args.authenticator_cipher
+        auth_etype = args.authenticator_etype
+
+        if not any([tgs_cipher_hex, auth_cipher_hex]):
+            print("[!] Provide --tgs-ticket and/or --authenticator-cipher."); sys.exit(1)
+
+
+        if tgs_cipher_hex:
+            if not args.tgs_service_key:
+                print("[!] --service-key is required to decrypt TGS enc-part"); sys.exit(1)
+            pt_t = decrypt(tgs_etype, args.tgs_service_key, 2, tgs_cipher_hex)
+            print("")
+            print(f"{MAGENTA}[+] TGS (Service Ticket) Decrypted hex:{RESET} {pt_t.hex()}")
+            
+            
+            try:
+                enc_tkt, _ = der_decode(pt_t, asn1Spec=EncTicketPart())
+                skt = int(enc_tkt['key']['keytype'])
+                skv = bytes(enc_tkt['key']['keyvalue']).hex()
+                print(f"{GREEN}[+] Service session key etype:{RESET} {skt}")
+                print(f"{GREEN}[+] Service session key:{RESET} {skv}")
+                pretty_print_enc_ticket_part_and_pac(pt_t)
+            except Exception as e:
+                print("[*] Could not parse EncTicketPart:", e)
+
+        if auth_cipher_hex:
+            if not args.session_key:
+                print("[!] --session-key (from TGS-REP) is required to decrypt authenticator"); sys.exit(1)
+            pt_a = decrypt(auth_etype, args.session_key, 11, auth_cipher_hex) 
+            print("")
+            print(f"{MAGENTA}[+] AP-REQ Authenticator Decrypted:{RESET} {pt_a.hex()}")
+            parse_authenticator_with_cred(pt_a)
+
+            try:
+                auth, _ = der_decode(pt_a, asn1Spec=Authenticator())
+                print(f"{GREEN}[+] Authenticator cname:{RESET}", str(auth['cname']))
+                print(f"{GREEN}[+] Authenticator crealm:{RESET}", str(auth['crealm']))
+                print(f"{GREEN}[+] Authenticator ctime:{RESET}", dt_str(str(auth['ctime'])),
+                    "usec:", int(auth['cusec']) if auth['cusec'].hasValue() else "<absent>")
+                if auth['subkey'].hasValue():
+                    print(f"{GREEN}[+] Authenticator subkey etype:{RESET}", int(auth['subkey']['keytype']))
+                    print(f"{GREEN}[+] Authenticator subkey:{RESET}", bytes(auth['subkey']['keyvalue']).hex())
+                if auth['seq-number'].hasValue():
+                    print(f"{GREEN}[+] Sequence number:{RESET}", int(auth['seq-number']))
+            except Exception as e:
+                print("[*] Could not parse Authenticator:", e)
+        return
+
+    # SERVICE-2 (AP-REP)
+    if args.mode == "service-2":
+        encpart_cipher_hex = args.encpart_cipher
+        encpart_etype = args.encpart_etype
+        
+        if not encpart_cipher_hex:
+            print("[!] Provide --encpart-cipher for AP-REP decryption."); sys.exit(1)
+        
+        if not args.session_key:
+            print("[!] --session-key (from TGS-REP) is required to decrypt AP-REP enc-part"); sys.exit(1)
+        
+        pt_ap = decrypt(encpart_etype, args.session_key, 12, encpart_cipher_hex)  # Usage 12 for AP-REP
+        print("")
+        print(f"{MAGENTA}[+] AP-REP enc-part decrypted hex:{RESET} {pt_ap.hex()}")
+        
+        try:
+          
+            from impacket.krb5.asn1 import EncAPRepPart
+            enc_ap_rep, _ = der_decode(pt_ap, asn1Spec=EncAPRepPart())
+            
+       
+            print(f"{GREEN}[+] AP-REP ctime:{RESET}", dt_str(str(enc_ap_rep['ctime'])))
+            
+            if enc_ap_rep['cusec'].hasValue():
+                print(f"{GREEN}[+] AP-REP cusec:{RESET}", int(enc_ap_rep['cusec']), "microseconds")
+            
+            if enc_ap_rep['subkey'].hasValue():
+                subkey_etype = int(enc_ap_rep['subkey']['keytype'])
+                subkey_value = bytes(enc_ap_rep['subkey']['keyvalue']).hex()
+                print(f"{YELLOW}[+] AP-REP subkey etype:{RESET}", subkey_etype)
+                print(f"{YELLOW}[+] AP-REP subkey:{RESET}", subkey_value)
+            else:
+                print(f"{YELLOW}[+] AP-REP subkey:{RESET} Not present (using service session key)")
+                
+            if enc_ap_rep['seq-number'].hasValue():
+                print(f"{YELLOW}[+] AP-REP seq-number:{RESET}", int(enc_ap_rep['seq-number']))
+            else:
+                print(f"{YELLOW}[+] AP-REP seq-number:{RESET} Not present")
+                
+        except Exception as e:
+            print("[*] Could not parse EncAPRepPart:", e)
+            print("[*] Raw decrypted data might be valid but structure unknown")
         return
 
 
