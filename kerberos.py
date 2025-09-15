@@ -848,7 +848,7 @@ def extract_ticket_from_position(data: bytes, pos: int):
 def parse_authenticator_with_cred(pt_a: bytes):
     try:
         from impacket.krb5.asn1 import Authenticator, KRB_CRED
-        from pyasn1.codec.der import encoder as der_encoder # ייבוא של המקודד
+        from pyasn1.codec.der import encoder as der_encoder
 
         auth, _ = der_decode(pt_a, asn1Spec=Authenticator())
         
@@ -872,7 +872,7 @@ def parse_authenticator_with_cred(pt_a: bytes):
             print(f"{YELLOW}[+] Checksum type:{RESET} {cksum_type} (0x{cksum_type:x})")
             print(f"{YELLOW}[+] Checksum length:{RESET} {len(cksum_data)} bytes")
             
-            if cksum_type == 0x8003: # GSS-API Checksum
+            if cksum_type == 0x8003:
                 print(f"{CYAN}[!] Found GSS-API checksum - parsing for delegation data...{RESET}")
                 
                 if len(cksum_data) >= 24:
@@ -1092,12 +1092,6 @@ def pretty_print_enc_ticket_part_and_pac(decrypted_enc_ticket_part_bytes: bytes)
                     print(f"    Credentials Blob Size: {Colors.CYAN}{len(blob)} bytes{Colors.RESET}")
                     print(f"    Credentials Blob (hex): {Colors.CYAN}{blob.hex()}{Colors.RESET}")
 
-                 
-                    if len(blob) > 200: 
-                        print(f"      {Colors.BOLD}{Colors.GREEN}>>> Blob size is consistent with a TGT for Unconstrained Delegation.{Colors.RESET}")
-                    else:
-                        print(f"      {Colors.BOLD}{Colors.YELLOW}>>> Blob size is TOO SMALL for a TGT. This is likely supplemental credential info (e.g., a nonce or checksum), NOT for delegation.{Colors.RESET}")
-
             elif t == 17: 
                 print(f"{Colors.GREEN}PAC_ATTRIBUTES_INFO{Colors.RESET}")
                 attr = parse_pac_attributes_info(data)
@@ -1238,76 +1232,76 @@ def parse_args():
     sub = p.add_subparsers(dest="mode", required=True)
 
     # AS-REQ 
-    asreq = sub.add_parser("as-req", help="AS-REQ    : Decrypt PA-ENC-TIMESTAMP using rc4_hmac or aes256 hash client")
+    asreq = sub.add_parser("as-req", help="AS-REQ    : Authentication Request packet ( Client -> KDC )")
     src = asreq.add_mutually_exclusive_group(required=True)
-    src.add_argument("--padata-value", help="HEX Stream value of padata-value in 'PA-DATA pA-ENC-TIMESTAMP'")
+    src.add_argument("--padata-value", help="HEX Stream value of padata-value (Pre Authentication Data) 'PA-DATA pA-ENC-TIMESTAMP'")
     src.add_argument("--cipher", help="HEX Stream value of cipher in 'PA-DATA pA-ENC-TIMESTAMP'")
-    asreq.add_argument("--key", required=True, help="rc4_hmac or aes256 hash client")
-    asreq.add_argument("--etype", type=int, help="Key etype use '2' for pdata-vaule, or '23' for cipher")
+    asreq.add_argument("--key", required=True, help="rc4_hmac | aaes256_cts_hmac_sha1 | aes128_cts_hmac_sha1 of user clinet")
+    asreq.add_argument("--etype", type=int, default="23", help="Use This argument only with --cipher argument, the default is 23")
 
     # AS-REP 
-    asrep = sub.add_parser("as-rep", help="AS-REP    : Decrypt TGT (Service Ticket) using aes256_cts_hmac_sha1 hash krbtgt service account, and decrypt Client-Enc-Part using rc4_hmac hash client")
-    tg = asrep.add_argument_group("TGT enc-part")
-    tg_src = tg.add_mutually_exclusive_group()
-    tg_src.add_argument("--tgt-ticket", help="HEX Stream value cipher of TGT enc-part")
-    tg.add_argument("--krbtgt-key", help="es256_cts_hmac_sha1 hash krbtgt service account")
-    tg.add_argument("--ticket-etype", type=int, default=18, help="Key etype for cipher TGT-enc-part Default 18, use: (17/18/23)")
+    asrep = sub.add_parser("as-rep", help="AS-REP    : Authentication Reply packet ( KDC-> Client )")
+    tgt = asrep.add_argument_group("TGT enc-part")
+    tgt_src = tgt.add_mutually_exclusive_group()
+    tgt_src.add_argument("--tgt-ticket", help="HEX Stream value cipher of TGT enc-part")
+    tgt.add_argument("--krbtgt-key", help="Using krbtgt service account's aes256_cts_hmac_sha1 hash for decrypting TGT | some cases you will need the rc4_hmac hash")
+    tgt.add_argument("--ticket-etype", type=int, default=18, help="Use this --etype argument with value of 18(The Default) - for aes256_cts_hmac_sha1 | 17  - for aes128_cts_hmac_sha1 | 23 - for rc4_hmac")
 
     cl = asrep.add_argument_group("Client enc-part")
     cl_src = cl.add_mutually_exclusive_group()
     cl_src.add_argument("--client-cipher", help="HEX Stream cipher of client enc-part")
-    cl.add_argument("--client-key", help="client key (rc4/aes256)")
-    cl.add_argument("--client-etype", type=int, default=23, help="Key etype for cipher Client-enc-part Default 23, use: (17/18/23)")
+    cl.add_argument("--client-key", help="rc4_hmac | aes256_cts_hmac_sha1 | aes128_cts_hmac_sha1 of user clinet")
+    cl.add_argument("--client-etype", type=int, default=23, help="Use this --etype argument with value of 23 for rc4_hmac(The Default) |  18 - for aes256_cts_hmac_sha1 | 17 - for aes128_cts_hmac_sha1")
 
     # TGS-REQ
-    tgs = sub.add_parser("tgs-req", help="TGS-REQ   :  Decrypt TGT (Service Ticket) using aes256_cts_hmac_sha1 hash krbtgt service account, and decrypt authenticator part using session key from AS-REP")
-    tg = tgs.add_argument_group("TGT enc-part")
+    tgsreq = sub.add_parser("tgs-req", help="TGS-REQ   : Ticket Granting Serivce Request packet ( Client -> KDC ) ")
+    tgs = tgsreq.add_argument_group("TGT enc-part")
     tgs_src_tkt = tgs.add_mutually_exclusive_group()
     tgs_src_tkt.add_argument("--tgt-ticket", help="HEX Stream cipher of TGT enc-part (from AS-REP)")
-    tgs.add_argument("--tgt-ticket-key", help="krbtgt key for decrypting TGT enc-part")
-    tgs.add_argument("--tgt-ticket-etype", type=int, default=18, help="Key etype cipher for TGT-enc-part Default 18, use: (17/18/23)")
+    tgs.add_argument("--tgt-ticket-key", help="Using krbtgt service account's aes256_cts_hmac_sha1 hash for decrypting TGT | some cases you will need the rc4_hmac hash")
+    tgs.add_argument("--tgt-ticket-etype", type=int, default=18, help="Use this --etype argument with value of 18(The Default) - for aes256_cts_hmac_sha1 | 17 -  for aes128_cts_hmac_sha1 | 23 - for rc4_hmac")
 
-    tg_auth = tgs.add_argument_group("Authenticator enc-part")
-    tgs_src_auth = tgs.add_mutually_exclusive_group()
+    tgs_auth = tgsreq.add_argument_group("Authenticator enc-part")
+    tgs_src_auth = tgs_auth.add_mutually_exclusive_group()
     tgs_src_auth.add_argument("--authenticator-cipher", help="HEX cipher of AP-REQ authenticator")
-    tgs.add_argument("--session-key", help="AS-REP session key (to decrypt authenticator)")
-    tgs.add_argument("--authenticator-etype", type=int, default=23, help="Key etype cipher for Authenticator enc-part Default 23, use: (17/18/23)")
+    tgs_auth.add_argument("--session-key", help="Using Session Key from AS-REP packet (recived from KDC)")
+    tgs_auth.add_argument("--authenticator-etype", type=int, default=23, help="Use this --etype argument with value of 23(The Default), in some cases the value will be 18 if the session key is aes256_cts_hmac_sha1..")
 
     # TGS-REP
-    tgsrep = sub.add_parser("tgs-rep", help="TGS-REP    : Decrypt TGS (Service-Ticket) using rc4_hmac hash service acocunt, and decrypt Client-Enc-Part sing session key from AS-REP")
+    tgsrep = sub.add_parser("tgs-rep", help="TGS-REP    : Ticket Granting Serivce Reply packet ( KDC -> Client ) ")
     grp_t = tgsrep.add_argument_group("TGS enc-part (ticket)")
     grp_t_src = grp_t.add_mutually_exclusive_group()
     grp_t_src.add_argument("--tgs-ticket", help="HEX cipher of service ticket enc-part")
-    grp_t.add_argument("--tgs-service-key", help="service account key (rc4/aes)")
-    grp_t.add_argument("--tgs-ticket-etype", type=int, default=23, help="Key etype cipher for TGS-enc-part Default 23, use: (17/18/23)")
+    grp_t.add_argument("--tgs-service-key", help="Using service account's aes256_cts_hmac_sha1 hash for decrypting TGS | some cases you will need the rc4_hmac has")
+    grp_t.add_argument("--tgs-ticket-etype", type=int, default=18, help="Use this --etype argument with value of 18(The Default) - for aes256_cts_hmac_sha1 | 17 -  for aes128_cts_hmac_sha1 | 23 - for rc4_hmac")
 
     grp_c = tgsrep.add_argument_group("Client enc-part (EncTGSRepPart)")
     grp_c_src = grp_c.add_mutually_exclusive_group()
-    grp_c_src.add_argument("--encpart-cipher", help="HEX cipher of EncTGSRepPart")
-    grp_c.add_argument("--session-key", help="reply key (AS-REP session key or subkey)")
-    grp_c.add_argument("--encpart-etype", type=int, default=23, help="Key etype cipher for client enc-part Default 23, use: (17/18/23)")
+    grp_c_src.add_argument("--encpart-cipher", help="HEX Stream value cipher of EncTGSRepPart")
+    grp_c.add_argument("--session-key", help="Using Session Key from AS-REP packet (recived from KDC)")
+    grp_c.add_argument("--encpart-etype", type=int, default=23, help="Use this --etype argument with value of 23(The Default), in some cases the value will be 18 if the session key is aes256_cts_hmac_sha1..")
 
-    # Service-1 
-    service1 = sub.add_parser("service-1", help="Packet 1 TGS sent to Service")
+    # AP-REQ 
+    service1 = sub.add_parser("ap-req", help="AP_REQ:   Application Request packet ( Client -> Application Service )")
     grp_t = service1.add_argument_group("TGS enc-part (ticket)")
     grp_t_src = grp_t.add_mutually_exclusive_group()
-    grp_t_src.add_argument("--tgs-ticket", help="HEX cipher of service ticket enc-part")
-    grp_t.add_argument("--tgs-service-key", help="service account key (rc4/aes)")
-    grp_t.add_argument("--tgs-ticket-etype", type=int, default=23, help="Key etype cipher for TGS-enc-part Default 23, use: (17/18/23)")
+    grp_t_src.add_argument("--tgs-ticket", help="HEX Stream value of cipher service ticket enc-part")
+    grp_t.add_argument("--tgs-service-key", help="Using service account's aes256_cts_hmac_sha1 hash for decrypting TGS | some cases you will need the rc4_hmac has")
+    grp_t.add_argument("--tgs-ticket-etype", type=int, default=23, help="Use this --etype argument with value of 18(The Default) - for aes256_cts_hmac_sha1 | 17 - for aes128_cts_hmac_sha1 | 23 - for rc4_hmac")
 
     grp_c = service1.add_argument_group("Client enc-part (EncTGSRepPart)")
     grp_c_src = grp_c.add_mutually_exclusive_group()
-    grp_c_src.add_argument("--authenticator-cipher", help="HEX cipher of EncTGSRepPart")
-    grp_c.add_argument("--session-key", help="reply key (AS-REP session key or subkey)")
-    grp_c.add_argument("--authenticator-etype", type=int, default=23, help="Key etype cipher for client enc-part Default 23, use: (17/18/23)")    
+    grp_c_src.add_argument("--authenticator-cipher", help="HEX Stream cipher value of EncTGSRepPart")
+    grp_c.add_argument("--session-key", help="Using Session Key from TGS-REP packet (recived from KDC)")
+    grp_c.add_argument("--authenticator-etype", type=int, default=18, help="Use this --etype argument with value of 18(The Default), in some cases the value will be 23 if the session key is rc4_hmac..")    
 
-    # Service-2 
-    service2 = sub.add_parser("service-2", help="Packet 1 TGS sent to Service" )
+    # AP-REP
+    service2 = sub.add_parser("ap-rep", help="AP_RP:   Application Reply packet ( Application Service -> Client )" )
     grp_c = service2.add_argument_group("Client enc-part (EncTGSRepPart)")
     grp_c_src = grp_c.add_mutually_exclusive_group()
-    grp_c_src.add_argument("--encpart-cipher", help="HEX cipher of EncTGSRepPart")
-    grp_c.add_argument("--session-key", help="reply key (AS-REP session key or subkey)")
-    grp_c.add_argument("--encpart-etype", type=int, default=23, help="Key etype cipher for client enc-part Default 23, use: (17/18/23)")   
+    grp_c_src.add_argument("--encpart-cipher", help="HEX Stream cipher value of EncTGSRepPart")
+    grp_c.add_argument("--session-key", help="Using Session Key from TGS-REP packet (recived from KDC)")
+    grp_c.add_argument("--encpart-etype", type=int, default=23, help="Use this --etype argument with value of 18(The Default), in some cases the value will be 23 if the session key is rc4_hmac..")   
 
 
     return p.parse_args()
@@ -1507,8 +1501,8 @@ def main():
                 print("[*] Could not parse EncTGSRepPart:", e)
         return
 
-    # SERVICE-1 (AP-REQ)
-    if args.mode == "service-1":
+    # AP-REQ
+    if args.mode == "ap-req":
         tgs_cipher_hex = args.tgs_ticket
         tgs_etype = args.tgs_ticket_etype
         auth_cipher_hex = args.authenticator_cipher
@@ -1559,8 +1553,8 @@ def main():
                 print("[*] Could not parse Authenticator:", e)
         return
 
-    # SERVICE-2 (AP-REP)
-    if args.mode == "service-2":
+    # AP-REP
+    if args.mode == "ap-rep":
         encpart_cipher_hex = args.encpart_cipher
         encpart_etype = args.encpart_etype
         
@@ -1570,7 +1564,7 @@ def main():
         if not args.session_key:
             print("[!] --session-key (from TGS-REP) is required to decrypt AP-REP enc-part"); sys.exit(1)
         
-        pt_ap = decrypt(encpart_etype, args.session_key, 12, encpart_cipher_hex)  # Usage 12 for AP-REP
+        pt_ap = decrypt(encpart_etype, args.session_key, 12, encpart_cipher_hex)
         print("")
         print(f"{MAGENTA}[+] AP-REP enc-part decrypted hex:{RESET} {pt_ap.hex()}")
         
