@@ -801,15 +801,11 @@ def parse_gss_api_checksum(checksum_data: bytes):
 ##################################################
 
 def extract_ticket_from_position(data: bytes, pos: int):
-    """
-    Extract ticket structure starting at given position
-    """
     if pos >= len(data) or data[pos] != 0x30:
         return None
-        
-    # Parse ASN.1 length
+   
     length_byte = data[pos + 1]
-    if length_byte & 0x80:  # Long form
+    if length_byte & 0x80: 
         length_bytes = length_byte & 0x7F
         if length_bytes <= 2:
             actual_length = 0
