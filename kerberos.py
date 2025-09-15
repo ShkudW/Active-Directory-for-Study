@@ -786,31 +786,14 @@ def parse_pac_logon_info(buf_bytes: bytes):
 #################################################
 
 def parse_gss_api_checksum(checksum_data: bytes):
-    """
-    Parse GSS-API checksum (type 0x8003) properly
-    """
     if len(checksum_data) < 24:
         return None
         
-    # GSS-API checksum structure differs from what I initially thought
-    # The actual structure contains the forwarded TGT directly
-    
-    # Look for KRB-CRED or ticket structures
-    # Application tag [22] = 0x76 for KRB-CRED
-    # But it might be embedded differently
-    
-    # Search for krbtgt service name
     krbtgt_pos = checksum_data.find(b'krbtgt')
     if krbtgt_pos >= 0:
-        # Found krbtgt - this indicates a TGT
-        # Now find the ticket structure containing it
-        
-        # Search backwards for SEQUENCE tag that contains this krbtgt
+
         for i in range(max(0, krbtgt_pos - 100), krbtgt_pos):
             if checksum_data[i] == 0x30:  # SEQUENCE
-                # Check if this sequence contains our krbtgt
-                # Parse length to see if it covers krbtgt position
-                # This is the actual ticket structure
                 return extract_ticket_from_position(checksum_data, i)
     
     return None
