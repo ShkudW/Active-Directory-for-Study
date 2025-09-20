@@ -1360,6 +1360,7 @@ def format_as_rep_klist_style(encp, client_name=None):
     kt = int(encp['key']['keytype'])
     kv = bytes(encp['key']['keyvalue']).hex()
     
+
     etype_names = {
         23: "RSADSI RC4-HMAC(NT)",
         17: "AES128-CTS-HMAC-SHA1-96", 
@@ -1372,13 +1373,13 @@ def format_as_rep_klist_style(encp, client_name=None):
     print(f"    Type: {etype_name}")
     print("")
     print(f"{Colors.BOLD}{Colors.CYAN}=== Kerberos Ticket Information (klist format) ==={Colors.RESET}")
-    t
+    
+
     if client_name:
         client_display = client_name
     else:
         client_display = "[Provide --client-name parameter]"
     
-
     if encp['sname'].hasValue():
         sname = encp['sname']
         name_strings = [str(x) for x in sname['name-string']]
@@ -1393,17 +1394,17 @@ def format_as_rep_klist_style(encp, client_name=None):
     print(f"        Server: {server_name} @ {realm}")
     print(f"        KerbTicket Encryption Type: {etype_name}")
     
-
     if encp['flags'].hasValue():
         flags_int = int(encp['flags'])
         flag_names = flags_to_names_masked(flags_int)
         flags_str = ' '.join(flag_names)
         print(f"        Ticket Flags 0x{flags_int:08x} -> {flags_str}")
         
-        if flags_int & 0x00040000: 
+
+        if flags_int & 0x00040000:  
             print(f"        {Colors.BOLD}{Colors.GREEN}>>> DELEGATION SUPPORTED! <<<{Colors.RESET}")
     
-    # Times
+
     if encp['authtime'].hasValue():
         auth_time = dt_str(str(encp['authtime']))
         print(f"        Auth Time:  {auth_time}")
@@ -1424,7 +1425,13 @@ def format_as_rep_klist_style(encp, client_name=None):
         print(f"        Renew Time: {renew_time}")
     
     print(f"        Session Key Type: {etype_name}")
-    print(f"        Cache Flags: 0")
+    
+    cache_flags = 0
+    if server_name and 'krbtgt' in server_name.lower():
+        cache_flags = 0x1
+        print(f"        Cache Flags: 0x{cache_flags:x} -> PRIMARY")
+    else:
+        print(f"        Cache Flags: {cache_flags}")
     
     print("")
     print(f"{Colors.BOLD}{Colors.YELLOW}=== Additional AS-REP Information ==={Colors.RESET}")
@@ -1439,6 +1446,7 @@ def format_as_rep_klist_style(encp, client_name=None):
     
     if encp['last-req'].hasValue():
         print(f"        Last Requests: Available")
+
 
 ###############################################################
 
