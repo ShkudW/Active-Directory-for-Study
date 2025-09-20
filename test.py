@@ -1354,6 +1354,189 @@ def analyze_rpc_data(data: bytes):
 
 ########################################################
 
+
+def format_as_rep_klist_style(encp, client_name=None):
+
+    kt = int(encp['key']['keytype'])
+    kv = bytes(encp['key']['keyvalue']).hex()
+    
+    etype_names = {
+        23: "RSADSI RC4-HMAC(NT)",
+        17: "AES128-CTS-HMAC-SHA1-96", 
+        18: "AES256-CTS-HMAC-SHA1-96"
+    }
+    etype_name = etype_names.get(kt, f"Unknown({kt})")
+    
+    print(f"{Colors.BOLD}{Colors.GREEN}[+] Session Key (Stored in LSASS):{Colors.RESET}")
+    print(f"    {Colors.BOLD}{Colors.YELLOW}Key: {kv.upper()}{Colors.RESET}")
+    print(f"    Type: {etype_name}")
+    print("")
+    print(f"{Colors.BOLD}{Colors.CYAN}=== Kerberos Ticket Information (klist format) ==={Colors.RESET}")
+    t
+    if client_name:
+        client_display = client_name
+    else:
+        client_display = "[Provide --client-name parameter]"
+    
+
+    if encp['sname'].hasValue():
+        sname = encp['sname']
+        name_strings = [str(x) for x in sname['name-string']]
+        server_name = '/'.join(name_strings)
+    else:
+        server_name = "Unknown"
+    
+
+    realm = str(encp['srealm']) if encp['srealm'].hasValue() else "Unknown"
+    
+    print(f"        Client: {client_display} @ {realm}")
+    print(f"        Server: {server_name} @ {realm}")
+    print(f"        KerbTicket Encryption Type: {etype_name}")
+    
+
+    if encp['flags'].hasValue():
+        flags_int = int(encp['flags'])
+        flag_names = flags_to_names_masked(flags_int)
+        flags_str = ' '.join(flag_names)
+        print(f"        Ticket Flags 0x{flags_int:08x} -> {flags_str}")
+        
+        if flags_int & 0x00040000: 
+            print(f"        {Colors.BOLD}{Colors.GREEN}>>> DELEGATION SUPPORTED! <<<{Colors.RESET}")
+    
+    # Times
+    if encp['authtime'].hasValue():
+        auth_time = dt_str(str(encp['authtime']))
+        print(f"        Auth Time:  {auth_time}")
+        
+    if encp['starttime'].hasValue():
+        start_time = dt_str(str(encp['starttime']))
+        print(f"        Start Time: {start_time}")
+    elif encp['authtime'].hasValue(): 
+        start_time = dt_str(str(encp['authtime']))
+        print(f"        Start Time: {start_time}")
+        
+    if encp['endtime'].hasValue():
+        end_time = dt_str(str(encp['endtime']))
+        print(f"        End Time:   {end_time}")
+        
+    if encp['renew-till'].hasValue():
+        renew_time = dt_str(str(encp['renew-till']))
+        print(f"        Renew Time: {renew_time}")
+    
+    print(f"        Session Key Type: {etype_name}")
+    print(f"        Cache Flags: 0")
+    
+    print("")
+    print(f"{Colors.BOLD}{Colors.YELLOW}=== Additional AS-REP Information ==={Colors.RESET}")
+    
+    if encp['nonce'].hasValue():
+        nonce_val = int(encp['nonce'])
+        print(f"        Nonce: 0x{nonce_val:08x} ({nonce_val})")
+    
+    if encp['key-expiration'].hasValue():
+        key_exp = dt_str(str(encp['key-expiration']))
+        print(f"        Key Expiration: {key_exp}")
+    
+    if encp['last-req'].hasValue():
+        print(f"        Last Requests: Available")
+
+###############################################################
+
+
+def format_tgs_rep_klist_style(encp, client_name=None):
+
+    kt = int(encp['key']['keytype'])
+    kv = bytes(encp['key']['keyvalue']).hex()
+    
+    etype_names = {
+        23: "RSADSI RC4-HMAC(NT)",
+        17: "AES128-CTS-HMAC-SHA1-96", 
+        18: "AES256-CTS-HMAC-SHA1-96"
+    }
+    etype_name = etype_names.get(kt, f"Unknown({kt})")
+    
+    print(f"{Colors.BOLD}{Colors.GREEN}[+] Service Session Key (Stored in LSASS):{Colors.RESET}")
+    print(f"    {Colors.BOLD}{Colors.YELLOW}Key: {kv.upper()}{Colors.RESET}")
+    print(f"    Type: {etype_name}")
+    print("")
+    print(f"{Colors.BOLD}{Colors.CYAN}=== Service Ticket Information (klist format) ==={Colors.RESET}")
+    
+    if client_name:
+        client_display = client_name
+    else:
+        client_display = "[Provide --client-name parameter]"
+    
+    if encp['sname'].hasValue():
+        sname = encp['sname']
+        name_strings = [str(x) for x in sname['name-string']]
+        server_name = '/'.join(name_strings)
+    else:
+        server_name = "Unknown"
+    
+
+    realm = str(encp['srealm']) if encp['srealm'].hasValue() else "Unknown"
+    
+    print(f"        Client: {client_display} @ {realm}")
+    print(f"        Server: {server_name} @ {realm}")
+    print(f"        KerbTicket Encryption Type: {etype_name}")
+    
+    if encp['flags'].hasValue():
+        try:
+            flags_int = int(encp['flags'])
+        except Exception:
+            try:
+                bits = list(encp['flags'].asNumbers())
+                v = 0
+                for b in bits:
+                    v = (v << 1) | (1 if b else 0)
+                flags_int = v
+            except Exception:
+                flags_int = None
+        
+        if flags_int is not None:
+            flag_names = flags_to_names_masked(flags_int)
+            flags_str = ' '.join(flag_names)
+            print(f"        Ticket Flags 0x{flags_int:08x} -> {flags_str}")
+            
+            if flags_int & 0x00040000: 
+                print(f"        {Colors.BOLD}{Colors.GREEN}>>> DELEGATION SUPPORTED! <<<{Colors.RESET}")
+    
+    # Times
+    if encp['authtime'].hasValue():
+        auth_time = dt_str(str(encp['authtime']))
+        print(f"        Auth Time:  {auth_time}")
+        
+    if encp['starttime'].hasValue():
+        start_time = dt_str(str(encp['starttime']))
+        print(f"        Start Time: {start_time}")
+    elif encp['authtime'].hasValue():
+        start_time = dt_str(str(encp['authtime']))
+        print(f"        Start Time: {start_time}")
+        
+    if encp['endtime'].hasValue():
+        end_time = dt_str(str(encp['endtime']))
+        print(f"        End Time:   {end_time}")
+        
+    if encp['renew-till'].hasValue():
+        renew_time = dt_str(str(encp['renew-till']))
+        print(f"        Renew Time: {renew_time}")
+    
+    print(f"        Session Key Type: {etype_name}")
+    print(f"        Cache Flags: 0")
+    
+    print("")
+    print(f"{Colors.BOLD}{Colors.YELLOW}=== Additional TGS-REP Information ==={Colors.RESET}")
+    
+    print(f"        Service Ticket Session Key: {Colors.YELLOW}{kv.upper()}{Colors.RESET}")
+    print(f"        Service: {server_name}")
+    
+    if hasattr(encp, 'nonce') and encp['nonce'].hasValue():
+        nonce_val = int(encp['nonce'])
+        print(f"        Nonce: 0x{nonce_val:08x} ({nonce_val})")
+
+
+########################################################
+
 def parse_args():
     p = argparse.ArgumentParser(prog="Kerberos.py", description="Kerberos helper")
     sub = p.add_subparsers(dest="mode", required=True)
@@ -1408,6 +1591,7 @@ def parse_args():
     grp_c_src.add_argument("--encpart-cipher", help="HEX Stream value cipher of EncTGSRepPart")
     grp_c.add_argument("--session-key", help="Using Session Key from AS-REP packet (recived from KDC)")
     grp_c.add_argument("--encpart-etype", type=int, default=23, help="Use this --etype argument with value of 23(The Default), in some cases the value will be 18 if the session key is aes256_cts_hmac_sha1..")
+    grp_c.add_argument("--client-name", help="Client principal name for display (e.g., username)") 
 
     # AP-REQ 
     service1 = sub.add_parser("ap-req", help="AP_REQ:   Application Request packet ( Client -> Application Service )")
@@ -1473,8 +1657,11 @@ def main():
         ticket_etype        = args.ticket_etype
         encpart_cipher_hex  = args.client_cipher
         encpart_etype       = args.client_etype
+        client_name         = getattr(args, 'client_name', None)
+        
         if not any([ticket_cipher_hex, encpart_cipher_hex]):
             print("[!] Provide at least one of: --tgt-ticket or --client-cipher"); sys.exit(1)
+        
         if ticket_cipher_hex:
             if not args.krbtgt_key:
                 print("[!] --krbtgt-key is required to decrypt TGT enc-part"); sys.exit(1)
@@ -1490,6 +1677,7 @@ def main():
                 print(f"{Colors.GREEN}{Colors.BOLD}[+] EncTicketPart session key{Colors.RESET}: {Colors.BOLD}{Colors.YELLOW}{kv}{Colors.RESET}")
             except Exception as e:
                 print("[*] Could not parse EncTicketPart:", e)
+        
         if encpart_cipher_hex:
             if not args.client_key:
                 print("[!] --client-key is required to decrypt client enc-part"); sys.exit(1)
@@ -1499,99 +1687,13 @@ def main():
             try:
                 encp, _ = der_decode(pt_c, asn1Spec=EncASRepPart())
                 
-                # Session Key
-                kt = int(encp['key']['keytype'])
-                kv = bytes(encp['key']['keyvalue']).hex()
+                format_as_rep_klist_style(encp, client_name)
                 
-                # Get encryption type name
-                etype_names = {
-                    23: "RSADSI RC4-HMAC(NT)",
-                    17: "AES128-CTS-HMAC-SHA1-96", 
-                    18: "AES256-CTS-HMAC-SHA1-96"
-                }
-                etype_name = etype_names.get(kt, f"Unknown({kt})")
-                
-                print(f"{Colors.BOLD}{Colors.GREEN}[+] Session Key (Stored in LSASS):{Colors.RESET}")
-                print(f"    {Colors.BOLD}{Colors.YELLOW}Key: {kv.upper()}{Colors.RESET}")
-                print(f"    Type: {etype_name}")
-                print("")
-                print(f"{Colors.BOLD}{Colors.CYAN}=== Kerberos Ticket Information (klist format) ==={Colors.RESET}")
-                
-                # Client name extraction with parameter support
-                if hasattr(args, 'client_name') and args.client_name:
-                    client_name = args.client_name
-                else:
-                    client_name = "[Provide --client-name parameter]"
-                
-                # Server name 
-                if encp['sname'].hasValue():
-                    sname = encp['sname']
-                    name_strings = [str(x) for x in sname['name-string']]
-                    server_name = '/'.join(name_strings)
-                else:
-                    server_name = "Unknown"
-                
-                # Realm
-                realm = str(encp['srealm']) if encp['srealm'].hasValue() else "Unknown"
-                
-                print(f"        Client: {client_name} @ {realm}")
-                print(f"        Server: {server_name} @ {realm}")
-                print(f"        KerbTicket Encryption Type: {etype_name}")
-                
-                # Flags
-                if encp['flags'].hasValue():
-                    flags_int = int(encp['flags'])
-                    flag_names = flags_to_names_masked(flags_int)
-                    flags_str = ' '.join(flag_names)
-                    print(f"        Ticket Flags 0x{flags_int:08x} -> {flags_str}")
-                    
-                    # Check for important delegation flags
-                    if flags_int & 0x00040000:  # ok_as_delegate
-                        print(f"        {Colors.BOLD}{Colors.GREEN}>>> DELEGATION SUPPORTED! <<<{Colors.RESET}")
-                
-                # Times
-                if encp['authtime'].hasValue():
-                    auth_time = dt_str(str(encp['authtime']))
-                    print(f"        Auth Time:  {auth_time}")
-                    
-                if encp['starttime'].hasValue():
-                    start_time = dt_str(str(encp['starttime']))
-                    print(f"        Start Time: {start_time}")
-                elif encp['authtime'].hasValue():  # Use authtime if starttime not present
-                    start_time = dt_str(str(encp['authtime']))
-                    print(f"        Start Time: {start_time}")
-                    
-                if encp['endtime'].hasValue():
-                    end_time = dt_str(str(encp['endtime']))
-                    print(f"        End Time:   {end_time}")
-                    
-                if encp['renew-till'].hasValue():
-                    renew_time = dt_str(str(encp['renew-till']))
-                    print(f"        Renew Time: {renew_time}")
-                
-                print(f"        Session Key Type: {etype_name}")
-                print(f"        Cache Flags: 0")
-                
-                # Additional AS-REP specific info
-                print("")
-                print(f"{Colors.BOLD}{Colors.YELLOW}=== Additional AS-REP Information ==={Colors.RESET}")
-                
-                if encp['nonce'].hasValue():
-                    nonce_val = int(encp['nonce'])
-                    print(f"        Nonce: 0x{nonce_val:08x} ({nonce_val})")
-                
-                if encp['key-expiration'].hasValue():
-                    key_exp = dt_str(str(encp['key-expiration']))
-                    print(f"        Key Expiration: {key_exp}")
-                
-                if encp['last-req'].hasValue():
-                    print(f"        Last Requests: Available")
-
             except Exception as e:
                 print("[*] Could not parse EncASRepPart:", e)
         return
 
-# TGS-REQ
+    # TGS-REQ
     if args.mode == "tgs-req":
         ticket_cipher_hex = args.tgt_ticket
         ticket_etype      = args.tgt_ticket_etype
@@ -1639,12 +1741,13 @@ def main():
         return
 
 
-#TGS-REP
+    #TGS-REP    
     if args.mode == "tgs-rep":
         ticket_cipher_hex   = args.tgs_ticket
         ticket_etype        = args.tgs_ticket_etype
         encpart_cipher_hex  = args.encpart_cipher
         encpart_etype       = args.encpart_etype
+        client_name         = getattr(args, 'client_name', None)  # קבלת שם הלקוח
 
         if not any([ticket_cipher_hex, encpart_cipher_hex]):
             print("[!] Provide --tgs-ticket and/or --encpart-cipher."); sys.exit(1)
@@ -1675,40 +1778,9 @@ def main():
             
             try:
                 encp, _ = der_decode(pt_c, asn1Spec=EncTGSRepPart())
-                kt = int(encp['key']['keytype'])
-                kv = bytes(encp['key']['keyvalue']).hex()
-                print(f"{GREEN}[+] TGS-REP session key etype:{RESET} {kt}")
-                print(f"{GREEN}[+] TGS-REP session key:{RESET} {kv}")
                 
-                # Parse flags if present
-                if encp['flags'].hasValue():
-                    try:
-                        flags_int = int(encp['flags'])
-                    except Exception:
-                        try:
-                            bits = list(encp['flags'].asNumbers())
-                            v = 0
-                            for b in bits:
-                                v = (v << 1) | (1 if b else 0)
-                            flags_int = v
-                        except Exception:
-                            flags_int = None
-                    
-                    if flags_int is not None:
-                        flag_names = flags_to_names_masked(flags_int)
-                        print(f"{GREEN}[+] TGS-REP Ticket Flags:{RESET} {', '.join(flag_names)} (0x{flags_int:08x})")
-                        
-                        # Check specifically for ok_as_delegate
-                        if flags_int & 0x00040000:
-                            print(f"{Colors.BOLD}{Colors.GREEN}[!] OK_AS_DELEGATE FLAG DETECTED! Service supports delegation.{Colors.RESET}")
-                            print(f"{Colors.BOLD}{Colors.CYAN}[!] Client can now request duplicate TGT for delegation purposes.{Colors.RESET}")
+                format_tgs_rep_klist_style(encp, client_name)
                 
-                if encp['srealm'].hasValue():    print(f"{YELLOW}[+] srealm:{RESET}",    str(encp['srealm']))
-                if encp['sname'].hasValue():     print(f"{YELLOW}[+] sname:{RESET}",     str(encp['sname']))
-                if encp['authtime'].hasValue():  print(f"{YELLOW}[+] authtime:{RESET}",  dt_str(str(encp['authtime'])))
-                if encp['starttime'].hasValue(): print(f"{YELLOW}[+] starttime:{RESET}", dt_str(str(encp['starttime'])))
-                if encp['endtime'].hasValue():   print(f"{YELLOW}[+] endtime:{RESET}",   dt_str(str(encp['endtime'])))
-                if encp['renew-till'].hasValue():print(f"{YELLOW}[+] renew-till:{RESET}",dt_str(str(encp['renew-till'])))
             except Exception as e:
                 print("[*] Could not parse EncTGSRepPart:", e)
         return
