@@ -876,7 +876,7 @@ def parse_authenticator_with_cred(pt_a: bytes):
                                 krb_cred, _ = der_decode(krb_cred_data, asn1Spec=KRB_CRED())
                                 print(f"{GREEN}[+] KRB-CRED parsed successfully!{RESET}")
                                 
-                                # נבדוק את המבנה של KRB-CRED
+                    
                                 print(f"\n{Colors.BOLD}{Colors.BLUE}=== KRB-CRED Structure Analysis ==={Colors.RESET}")
                                 
                                 if krb_cred['pvno'].hasValue():
@@ -897,12 +897,12 @@ def parse_authenticator_with_cred(pt_a: bytes):
                                         snames = [str(x) for x in sname['name-string']]
                                         print(f"    Service: {Colors.CYAN}{'/'.join(snames)}{Colors.RESET}")
                                         
-                                        # כל ה-Ticket כ-ASN.1
+                                   
                                         raw_ticket_bytes = der_encoder.encode(ticket)
                                         print(f"    Complete Ticket ASN.1 ({len(raw_ticket_bytes)} bytes):")
                                         print(f"    {Colors.DIM}{raw_ticket_bytes.hex()}{RESET}")
                                         
-                                        # חילוץ המבנה הפנימי של Ticket
+                           
                                         if ticket['enc-part'].hasValue():
                                             enc_part = ticket['enc-part']
                                             etype = int(enc_part['etype'])
@@ -937,7 +937,7 @@ def parse_authenticator_with_cred(pt_a: bytes):
                                             except Exception as parse_err:
                                                 print(f"    {Colors.RED}Could not re-parse ticket structure: {parse_err}{Colors.RESET}")
                                 
-                                # בדיקת enc-part של KRB-CRED (אם קיים)
+                         
                                 if krb_cred['enc-part'].hasValue():
                                     print(f"\n{Colors.BOLD}{Colors.BLUE}=== KRB-CRED Encrypted Part ==={Colors.RESET}")
                                     cred_enc_part = krb_cred['enc-part']
@@ -954,17 +954,16 @@ def parse_authenticator_with_cred(pt_a: bytes):
                             except Exception as e:
                                 print(f"{RED}[!] Failed to parse KRB-CRED: {e}{RESET}")
                                 print(f"{YELLOW}[!] Raw KRB-CRED data (hex):{RESET} {krb_cred_data.hex()}")
-                                
-                                # ננסה פרסינג ידני של החלקים הראשונים
+                             
                                 print(f"\n{Colors.YELLOW}[!] Attempting manual parsing of KRB-CRED structure...{Colors.RESET}")
                                 if len(krb_cred_data) >= 10:
                                     print(f"    First 20 bytes: {krb_cred_data[:20].hex()}")
                                     
-                                    # ASN.1 basic parsing
-                                    if krb_cred_data[0] == 0x30:  # SEQUENCE
+                              
+                                    if krb_cred_data[0] == 0x30:  
                                         print(f"    Detected ASN.1 SEQUENCE")
                                         length = krb_cred_data[1]
-                                        if length & 0x80:  # Long form
+                                        if length & 0x80:
                                             length_bytes = length & 0x7F
                                             print(f"    Long form length: {length_bytes} bytes")
     
@@ -1227,26 +1226,26 @@ def parse_enc_krb_cred_part(pt_c: bytes):
                     print(f"{Colors.GREEN}[+] Server Name Type:{Colors.RESET} {sname_type}")
                     print(f"{Colors.GREEN}[+] Server Name:{Colors.RESET} {'/'.join(sname_strings)}")
         
-        # Nonce (if present)
+   
         if enc_cred['nonce'].hasValue():
             nonce_val = int(enc_cred['nonce'])
             print(f"\n{Colors.YELLOW}[+] Nonce:{Colors.RESET} 0x{nonce_val:08x} ({nonce_val})")
         
-        # Timestamp (if present)
+   
         if enc_cred['timestamp'].hasValue():
             timestamp_str = _fmt_gt(enc_cred['timestamp'])
             print(f"{Colors.YELLOW}[+] Timestamp:{Colors.RESET} {timestamp_str}")
             
-        # Usec (if present)
+    
         if enc_cred['usec'].hasValue():
             usec_val = int(enc_cred['usec'])
             print(f"{Colors.YELLOW}[+] Microseconds:{Colors.RESET} {usec_val}")
         
-        # Sender address (if present)
+       
         if enc_cred['s-address'].hasValue():
             print(f"{Colors.YELLOW}[+] Sender Address:{Colors.RESET} Present")
         
-        # Recipient address (if present) 
+        
         if enc_cred['r-address'].hasValue():
             print(f"{Colors.YELLOW}[+] Recipient Address:{Colors.RESET} Present")
             
@@ -1346,7 +1345,7 @@ def analyze_rpc_data(data: bytes):
     except Exception as e:
         print(f"  Could not parse as RPC header: {e}")
     
-    # Look for printable strings
+  
     text = data.decode('ascii', errors='ignore')
     printable_chars = sum(1 for c in text if c.isprintable() and c != ' ')
     print(f"  Printable chars: {printable_chars}/{len(data)} ({printable_chars/len(data)*100:.1f}%)")
@@ -1703,50 +1702,135 @@ def main():
 
     # TGS-REQ
     if args.mode == "tgs-req":
-        ticket_cipher_hex = args.tgt_ticket
-        ticket_etype      = args.tgt_ticket_etype
-        auth_cipher_hex   = args.authenticator_cipher 
-        auth_etype        = args.authenticator_etype
+            ticket_cipher_hex = args.tgt_ticket
+            ticket_etype      = args.tgt_ticket_etype
+            auth_cipher_hex   = args.authenticator_cipher 
+            auth_etype        = args.authenticator_etype
 
-        if not any([ticket_cipher_hex, auth_cipher_hex]):
-            print("[!] Provide --tgt-ticket and/or --authenticator-cipher."); sys.exit(1)
+            if not any([ticket_cipher_hex, auth_cipher_hex]):
+                print("[!] Provide --tgt-ticket and/or --authenticator-cipher."); sys.exit(1)
 
-        if ticket_cipher_hex:
-            if not args.tgt_ticket_key:
-                print("[!] --tgt-ticket-key is required to decrypt ticket.enc-part"); sys.exit(1)
-            pt_t = decrypt(ticket_etype, args.tgt_ticket_key, 2, ticket_cipher_hex)
-            print("")
-            print(f"{MAGENTA}[+] TGT Decrypted hex:{RESET} {pt_t.hex()}")
-            pretty_print_enc_ticket_part_and_pac(pt_t)
-            try:
-                enc_tkt, _ = der_decode(pt_t, asn1Spec=EncTicketPart())
-                kt = int(enc_tkt['key']['keytype'])
-                kv = bytes(enc_tkt['key']['keyvalue']).hex()
-                print(f"{GREEN}[+] EncTicketPart key etype:{RESET} {kt}")
-                print(f"{GREEN}[+] TGT session key:{RESET} {kv}")
-            except Exception as e:
-                print("[*] Could not parse EncTicketPart:", e)
+            if ticket_cipher_hex:
+                if not args.tgt_ticket_key:
+                    print("[!] --tgt-ticket-key is required to decrypt ticket.enc-part"); sys.exit(1)
+                pt_t = decrypt(ticket_etype, args.tgt_ticket_key, 2, ticket_cipher_hex)
+                print("")
+                print(f"{MAGENTA}[+] TGT Decrypted hex:{RESET} {pt_t.hex()}")
+                pretty_print_enc_ticket_part_and_pac(pt_t)
+                try:
+                    enc_tkt, _ = der_decode(pt_t, asn1Spec=EncTicketPart())
+                    kt = int(enc_tkt['key']['keytype'])
+                    kv = bytes(enc_tkt['key']['keyvalue']).hex()
+                    print(f"{GREEN}[+] EncTicketPart key etype:{RESET} {kt}")
+                    print(f"{GREEN}[+] TGT session key:{RESET} {kv}")
+                except Exception as e:
+                    print("[*] Could not parse EncTicketPart:", e)
 
-        if auth_cipher_hex:
-            if not args.session_key:
-                print("[!] --session-key (AS-REP session key) is required to decrypt authenticator"); sys.exit(1)
-            pt_a = decrypt(auth_etype, args.session_key, 7, auth_cipher_hex)
-            print("")
-            print(f"{MAGENTA}[+] Authenticator Decrypted{RESET}: {pt_a.hex()}")
-            try:
-                auth, _ = der_decode(pt_a, asn1Spec=Authenticator())
-                print(f"{GREEN}[+] Authenticator cname:{RESET}", str(auth['cname']))
-                print(f"{GREEN}[+] Authenticator crealm:{RESET}", str(auth['crealm']))
-                print(f"{GREEN}[+] Authenticator ctime:{RESET}", dt_str(str(auth['ctime'])),
-                    "usec:", int(auth['cusec']) if auth['cusec'].hasValue() else "<absent>")
-                if auth['subkey'].hasValue():
-                    print(f"{GREEN}[+] Authenticator subkey etype:{RESET}", int(auth['subkey']['keytype']))
-                    print(f"{GREEN}[+] Authenticator subkey:{RESET}", bytes(auth['subkey']['keyvalue']).hex())
-                if auth['seq-number'].hasValue():
-                    print(f"{GREEN}[+] Sequence number:{RESET}", int(auth['seq-number']))
-            except Exception as e:
-                print("[*] Could not parse Authenticator:", e)
-        return
+            if auth_cipher_hex:
+                if not args.session_key:
+                    print("[!] --session-key (AS-REP session key) is required to decrypt authenticator"); sys.exit(1)
+                pt_a = decrypt(auth_etype, args.session_key, 7, auth_cipher_hex)
+                print("")
+                print(f"{MAGENTA}[+] Authenticator Decrypted{RESET}: {pt_a.hex()}")
+                try:
+                    auth, _ = der_decode(pt_a, asn1Spec=Authenticator())
+                    
+                
+                    print(f"{GREEN}[+] Authenticator cname:{RESET}", str(auth['cname']))
+                    print(f"{GREEN}[+] Authenticator crealm:{RESET}", str(auth['crealm']))
+                    print(f"{GREEN}[+] Authenticator ctime:{RESET}", dt_str(str(auth['ctime'])),
+                        "usec:", int(auth['cusec']) if auth['cusec'].hasValue() else "<absent>")
+                    
+                
+                    if auth['authenticator-vno'].hasValue():
+                        print(f"{GREEN}[+] Authenticator version:{RESET}", int(auth['authenticator-vno']))
+                    
+                  
+                    if auth['cksum'].hasValue():
+                        cksum = auth['cksum']
+                        cksum_type = int(cksum['cksumtype'])
+                        cksum_data = bytes(cksum['checksum'])
+                        
+                     
+                        checksum_names = {
+                            0x00000001: "CRC32",
+                            0x00000007: "RSA_MD5", 
+                            0x0000000F: "HMAC_SHA1_96_AES128",
+                            0x00000010: "HMAC_MD5",
+                            0x00000011: "HMAC_SHA1_96_AES256",
+                            0x00008003: "GSS_API_CHECKSUM"
+                        }
+                        cksum_name = checksum_names.get(cksum_type, f"Unknown(0x{cksum_type:08x})")
+                        
+                        print(f"{YELLOW}[+] Checksum type:{RESET} {cksum_type} ({cksum_name})")
+                        print(f"{YELLOW}[+] Checksum length:{RESET} {len(cksum_data)} bytes")
+                        print(f"{YELLOW}[+] Checksum data:{RESET} {cksum_data.hex()}")
+                        
+                     
+                        if cksum_type == 0x8003:
+                            print(f"{CYAN}[!] GSS-API Checksum detected - checking for delegation data...{RESET}")
+                            if len(cksum_data) >= 24:
+                                import struct
+                                try:
+                                    flags = struct.unpack('<I', cksum_data[20:24])[0]
+                                    print(f"{CYAN}[+] GSS-API Flags:{RESET} 0x{flags:08x}")
+                                    
+                                    if flags & 1:
+                                        print(f"{BOLD}{GREEN}[!] DELEGATION FLAG SET!{RESET}")
+                                        if len(cksum_data) > 28:
+                                            delegation_data = cksum_data[28:]
+                                            print(f"{YELLOW}[+] Delegation data length:{RESET} {len(delegation_data)} bytes")
+                                            print(f"{YELLOW}[+] Delegation data:{RESET} {delegation_data.hex()}")
+                                    else:
+                                        print(f"{DIM}[*] No delegation flag set{RESET}")
+                                except Exception as e:
+                                    print(f"{RED}[!] Error parsing GSS-API checksum: {e}{RESET}")
+                    else:
+                        print(f"{DIM}[*] No checksum present{RESET}")
+                    
+                
+                    if auth['subkey'].hasValue():
+                        subkey_etype = int(auth['subkey']['keytype'])
+                        subkey_data = bytes(auth['subkey']['keyvalue'])
+                        
+                  
+                        etype_names = {
+                            23: "RSADSI RC4-HMAC(NT)",
+                            17: "AES128-CTS-HMAC-SHA1-96", 
+                            18: "AES256-CTS-HMAC-SHA1-96"
+                        }
+                        etype_name = etype_names.get(subkey_etype, f"Unknown({subkey_etype})")
+                        
+                        print(f"{BLUE}[+] Authenticator subkey etype:{RESET} {subkey_etype} ({etype_name})")
+                        print(f"{BLUE}[+] Authenticator subkey length:{RESET} {len(subkey_data)} bytes")
+                        print(f"{BLUE}[+] Authenticator subkey:{RESET} {subkey_data.hex()}")
+                    else:
+                        print(f"{DIM}[*] No subkey present{RESET}")
+                    
+         
+                    if auth['seq-number'].hasValue():
+                        seq_num = int(auth['seq-number'])
+                        print(f"{GREEN}[+] Sequence number:{RESET} {seq_num} (0x{seq_num:08x})")
+                    else:
+                        print(f"{DIM}[*] No sequence number present{RESET}")
+                    
+                
+                    if auth['authorization-data'].hasValue():
+                        print(f"{MAGENTA}[+] Authorization data present{RESET}")
+                        auth_data = auth['authorization-data']
+                        print(f"{MAGENTA}[+] Authorization data entries:{RESET} {len(auth_data)}")
+                        
+                        for i, entry in enumerate(auth_data):
+                            ad_type = int(entry['ad-type'])
+                            ad_data = bytes(entry['ad-data'])
+                            print(f"    {MAGENTA}[*] Entry {i+1}: Type {ad_type}, Length {len(ad_data)} bytes{RESET}")
+                            print(f"    {MAGENTA}[*] Data: {ad_data.hex()}{RESET}")
+                    else:
+                        print(f"{DIM}[*] No authorization data present{RESET}")
+                        
+                except Exception as e:
+                    print("[*] Could not parse Authenticator:", e)
+            return
 
 
     #TGS-REP    
