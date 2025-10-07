@@ -1836,7 +1836,7 @@ def main():
         ticket_etype        = args.tgs_ticket_etype
         encpart_cipher_hex  = args.encpart_cipher
         encpart_etype       = args.encpart_etype
-        client_name         = getattr(args, 'client_name', None)  # קבלת שם הלקוח
+        client_name         = getattr(args, 'client_name', None)
 
         if not any([ticket_cipher_hex, encpart_cipher_hex]):
             print("[!] Provide --tgs-ticket and/or --encpart-cipher."); sys.exit(1)
