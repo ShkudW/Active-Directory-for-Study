@@ -974,9 +974,6 @@ def parse_authenticator_with_cred(pt_a: bytes):
 ##################################################
 
 def extract_tgt_cipher_for_manual_decrypt(krb_cred_hex: str):
-    """
-    פונקציה עזר לחילוץ cipher של TGT מתוך KRB-CRED hex
-    """
     try:
         from impacket.krb5.asn1 import KRB_CRED
         
