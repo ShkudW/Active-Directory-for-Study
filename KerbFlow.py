@@ -877,7 +877,7 @@ def parse_authenticator_with_cred(pt_a: bytes):
                                 print(f"{GREEN}[+] KRB-CRED parsed successfully!{RESET}")
                                 
                     
-                                print(f"\n{Colors.BOLD}{Colors.BLUE}=== KRB-CRED Structure Analysis ==={Colors.RESET}")
+                                print(f"\n{Colors.BOLD}{Colors.BLUE}KRB-CRED Structure Analysis: {Colors.RESET}")
                                 
                                 if krb_cred['pvno'].hasValue():
                                     print(f"{GREEN}[+] Protocol Version:{RESET} {int(krb_cred['pvno'])}")
@@ -890,7 +890,7 @@ def parse_authenticator_with_cred(pt_a: bytes):
                                     print(f"{GREEN}[+] Number of tickets in KRB-CRED:{RESET} {len(tickets)}")
                                     
                                     for i, ticket in enumerate(tickets):
-                                        print(f"\n{Colors.BOLD}{Colors.YELLOW}=== Ticket {i+1} Analysis ==={Colors.RESET}")
+                                        print(f"\n{Colors.BOLD}{Colors.YELLOW}Ticket {i+1} Analysis: {Colors.RESET}")
                                         print(f"    Realm: {Colors.CYAN}{str(ticket['realm'])}{Colors.RESET}")
                                         
                                         sname = ticket['sname']
@@ -919,7 +919,7 @@ def parse_authenticator_with_cred(pt_a: bytes):
                                         if 'krbtgt' in '/'.join(snames).lower():
                                             print(f"{BOLD}{GREEN}    >>> THIS IS THE FORWARDED TGT!{RESET}")
                                             
-                                            print(f"\n{Colors.BOLD}{Colors.CYAN}=== TGT Structure Breakdown ==={Colors.RESET}")
+                                            print(f"\n{Colors.BOLD}{Colors.CYAN}TGT Structure Breakdown: {Colors.RESET}")
                                             
                                             try:
                                                 ticket_parsed, _ = der_decode(raw_ticket_bytes, asn1Spec=Ticket())
@@ -939,7 +939,7 @@ def parse_authenticator_with_cred(pt_a: bytes):
                                 
                          
                                 if krb_cred['enc-part'].hasValue():
-                                    print(f"\n{Colors.BOLD}{Colors.BLUE}=== KRB-CRED Encrypted Part ==={Colors.RESET}")
+                                    print(f"\n{Colors.BOLD}{Colors.BLUE}KRB-CRED Encrypted Part: {Colors.RESET}")
                                     cred_enc_part = krb_cred['enc-part']
                                     cred_etype = int(cred_enc_part['etype'])
                                     cred_cipher = bytes(cred_enc_part['cipher'])
@@ -1463,7 +1463,7 @@ def format_tgs_rep_klist_style(encp, client_name=None):
     print(f"    {Colors.BOLD}{Colors.YELLOW}Key: {kv.upper()}{Colors.RESET}")
     print(f"    Type: {etype_name}")
     print("")
-    print(f"{Colors.BOLD}{Colors.CYAN}=== Service Ticket Information (klist format) ==={Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}Service Ticket Information (klist format): {Colors.RESET}")
     
     if client_name:
         client_display = client_name
@@ -1529,7 +1529,7 @@ def format_tgs_rep_klist_style(encp, client_name=None):
     print(f"        Cache Flags: 0")
     
     print("")
-    print(f"{Colors.BOLD}{Colors.YELLOW}=== Additional TGS-REP Information ==={Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.YELLOW}Additional TGS-REP Information: {Colors.RESET}")
     
     print(f"        Service Ticket Session Key: {Colors.YELLOW}{kv.upper()}{Colors.RESET}")
     print(f"        Service: {server_name}")
@@ -1542,7 +1542,7 @@ def format_tgs_rep_klist_style(encp, client_name=None):
 ########################################################
 
 def parse_args():
-    p = argparse.ArgumentParser(prog="Kerberos.py", description="Kerberos helper")
+    p = argparse.ArgumentParser(prog="KerbFlow.py", description="Kerberos helper")
     sub = p.add_subparsers(dest="mode", required=True)
 
     # AS-REQ 
@@ -1566,7 +1566,7 @@ def parse_args():
     cl_src.add_argument("--client-cipher", help="HEX Stream cipher of client enc-part")
     cl.add_argument("--client-key", help="rc4_hmac | aes256_cts_hmac_sha1 | aes128_cts_hmac_sha1 of user clinet")
     cl.add_argument("--client-etype", type=int, default=23, help="Use this --etype argument with value of 23 for rc4_hmac(The Default) |  18 - for aes256_cts_hmac_sha1 | 17 - for aes128_cts_hmac_sha1")
-    cl.add_argument("--client-name", help="Client principal name for display (e.g., username)")
+    cl.add_argument("--client-name", help="Client principal name for display
 
     # TGS-REQ
     tgsreq = sub.add_parser("tgs-req", help="TGS-REQ   : Ticket Granting Serivce Request packet ( Client -> KDC ) ")
@@ -1595,7 +1595,7 @@ def parse_args():
     grp_c_src.add_argument("--encpart-cipher", help="HEX Stream value cipher of EncTGSRepPart")
     grp_c.add_argument("--session-key", help="Using Session Key from AS-REP packet (recived from KDC)")
     grp_c.add_argument("--encpart-etype", type=int, default=23, help="Use this --etype argument with value of 23(The Default), in some cases the value will be 18 if the session key is aes256_cts_hmac_sha1..")
-    grp_c.add_argument("--client-name", help="Client principal name for display (e.g., username)") 
+    grp_c.add_argument("--client-name", help="Client principal name for display  
 
     # AP-REQ 
     service1 = sub.add_parser("ap-req", help="AP_REQ:   Application Request packet ( Client -> Application Service )")
