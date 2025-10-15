@@ -6,7 +6,7 @@ I wrote the tool to gain a deeper understanding of how Kerberos works.
 
 ```python
  .\python.exe .\kerbflow.py -h
-usage: Kerberos.py [-h] {as-req,as-rep,tgs-req,tgs-rep,ap-req,ap-rep,krb-cred} ...
+usage: KerbFlow.py [-h] {as-req,as-rep,tgs-req,tgs-rep,ap-req,ap-rep,krb-cred} ...
 
 Kerberos helper
 
