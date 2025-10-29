@@ -1566,7 +1566,7 @@ def parse_args():
     cl_src.add_argument("--client-cipher", help="HEX Stream cipher of client enc-part")
     cl.add_argument("--client-key", help="rc4_hmac | aes256_cts_hmac_sha1 | aes128_cts_hmac_sha1 of user clinet")
     cl.add_argument("--client-etype", type=int, default=23, help="Use this --etype argument with value of 23 for rc4_hmac(The Default) |  18 - for aes256_cts_hmac_sha1 | 17 - for aes128_cts_hmac_sha1")
-    cl.add_argument("--client-name", help="Client principal name for display
+    cl.add_argument("--client-name", help="Client principal name for display")
 
     # TGS-REQ
     tgsreq = sub.add_parser("tgs-req", help="TGS-REQ   : Ticket Granting Serivce Request packet ( Client -> KDC ) ")
@@ -1595,7 +1595,7 @@ def parse_args():
     grp_c_src.add_argument("--encpart-cipher", help="HEX Stream value cipher of EncTGSRepPart")
     grp_c.add_argument("--session-key", help="Using Session Key from AS-REP packet (recived from KDC)")
     grp_c.add_argument("--encpart-etype", type=int, default=23, help="Use this --etype argument with value of 23(The Default), in some cases the value will be 18 if the session key is aes256_cts_hmac_sha1..")
-    grp_c.add_argument("--client-name", help="Client principal name for display  
+    grp_c.add_argument("--client-name", help="Client principal name for display")  
 
     # AP-REQ 
     service1 = sub.add_parser("ap-req", help="AP_REQ:   Application Request packet ( Client -> Application Service )")
